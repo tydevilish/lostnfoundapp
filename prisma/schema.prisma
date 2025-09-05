@@ -30,8 +30,11 @@ model User {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+
   // relation ย้อนกลับ
   foundItems   FoundItem[]
+  conversations  ConversationMember[]
+  messagesSent  Message[]
 }
 
 model FoundItem {
@@ -55,3 +58,57 @@ model FoundItem {
   updatedAt    DateTime    @updatedAt
 }
 
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM
+}
+
+model Conversation {
+  id             String               @id @default(auto()) @map("_id") @db.ObjectId
+  isGroup        Boolean              @default(false)
+  title          String?
+  contextItemId  String?              @db.ObjectId // อ้างอิง FoundItem แบบหลวม ๆ (optional)
+  lastMessageAt  DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  members        ConversationMember[]
+  messages       Message[]
+
+  @@index([lastMessageAt])
+}
+
+model ConversationMember {
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String        @db.ObjectId
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+
+  userId         String        @db.ObjectId
+  user           User          @relation(fields: [userId], references: [id])
+
+  role           String?
+  unreadCount    Int           @default(0)
+  lastSeenAt     DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String        @db.ObjectId
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+
+  senderId       String        @db.ObjectId
+  sender         User          @relation(fields: [senderId], references: [id])
+
+  type           MessageType   @default(TEXT)
+  text           String?
+  attachments    String[]      @default([]) // URLs ของรูป/ไฟล์
+
+  createdAt      DateTime      @default(now())
+
+  @@index([conversationId, createdAt])
+}

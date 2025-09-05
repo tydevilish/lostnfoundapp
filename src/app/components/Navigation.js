@@ -90,6 +90,12 @@ export default function Navigation() {
               >
                 ตรวจสอบของหาย
               </Link>
+                            <Link
+                href="/messages"
+                className="rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 "
+              >
+                การพูดคุย
+              </Link>
             </div>
           </div>
 
@@ -299,6 +305,14 @@ export default function Navigation() {
               className="rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400"
             >
               ตรวจสอบของหาย
+            </Link>
+
+                        <Link
+              href="/messages"
+              onClick={() => setOpen(false)}
+              className="rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400"
+            >
+              การพูดคุย
             </Link>
 
             {/* โปรไฟล์ในมือถือ */}
