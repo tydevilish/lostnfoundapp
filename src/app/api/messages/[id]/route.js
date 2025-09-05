@@ -41,7 +41,7 @@ export async function GET(_req, ctx) {
       );
     }
 
-    // ✅ รับพารามิเตอร์เสริมสำหรับ polling
+    // ✅ พารามิเตอร์สำหรับ polling
     const url = new URL(_req.url);
     const sinceStr = url.searchParams.get("since");
     const takeParam = parseInt(url.searchParams.get("take") || "200", 10);
@@ -82,7 +82,7 @@ export async function GET(_req, ctx) {
         id: true,
         type: true,
         text: true,
-        attachments: true, // ใช้ attachments
+        attachments: true,
         senderId: true,
         createdAt: true,
       },
@@ -211,7 +211,7 @@ export async function POST(req, ctx) {
       data: { lastSeenAt: new Date() },
     });
 
-    // (คงไว้) ถ้า dev บน localhost แล้ว POST/GET อยู่ instance เดียว globalThis จะช่วย push ได้
+    // dev/local ยังเผื่อ broadcast ผ่าน globalThis (กรณี POST/GET อยู่ instance เดียว)
     try {
       const hubs = (globalThis.__sseHubs ??= new Map());
       const subs = hubs.get(id);
