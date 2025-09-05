@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start"
+    "build": "prisma generate && next build --turbopack",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "prisma": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",
