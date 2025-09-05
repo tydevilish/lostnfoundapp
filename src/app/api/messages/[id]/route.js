@@ -23,7 +23,7 @@ async function getAuthUser() {
   }
 }
 
-// ---------- GET: รายละเอียดห้อง + ข้อความล่าสุด ----------
+// ---------- GET: รายละเอียดห้อง + ข้อความล่าสุด / ใหม่กว่า since ----------
 export async function GET(_req, ctx) {
   try {
     const me = await getAuthUser();
@@ -40,6 +40,12 @@ export async function GET(_req, ctx) {
         { status: 400 }
       );
     }
+
+    // ✅ รับพารามิเตอร์เสริมสำหรับ polling
+    const url = new URL(_req.url);
+    const sinceStr = url.searchParams.get("since");
+    const takeParam = parseInt(url.searchParams.get("take") || "200", 10);
+    const take = Number.isFinite(takeParam) ? Math.min(Math.max(takeParam, 1), 500) : 200;
 
     const convo = await prisma.conversation.findFirst({
       where: { id, members: { some: { userId: me.id } } },
@@ -62,10 +68,16 @@ export async function GET(_req, ctx) {
         { status: 404 }
       );
 
+    const where = { conversationId: id };
+    if (sinceStr) {
+      const s = new Date(sinceStr);
+      if (!isNaN(s)) where.createdAt = { gt: s };
+    }
+
     const messages = await prisma.message.findMany({
-      where: { conversationId: id },
+      where,
       orderBy: { createdAt: "asc" },
-      take: 200,
+      take,
       select: {
         id: true,
         type: true,
@@ -199,7 +211,7 @@ export async function POST(req, ctx) {
       data: { lastSeenAt: new Date() },
     });
 
-    // 🔔 แจ้งผู้ฟัง SSE ในห้องนี้ (broadcast ครั้งเดียว)
+    // (คงไว้) ถ้า dev บน localhost แล้ว POST/GET อยู่ instance เดียว globalThis จะช่วย push ได้
     try {
       const hubs = (globalThis.__sseHubs ??= new Map());
       const subs = hubs.get(id);

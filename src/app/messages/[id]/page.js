@@ -7,6 +7,16 @@ import Link from "next/link";
 
 const EMOJIS = ["😀","😂","😊","😍","🤔","😎","🤝","🙏","🎉","👍","🔥","❤️"];
 
+/** รวมรายการข้อความแบบกันซ้ำ (กันกรณี SSE + Poll ได้พร้อมกัน) */
+function mergeMessagesUnique(prev = [], incoming = []) {
+  if (!incoming.length) return prev;
+  const keyOf = (m) => m?.id ?? `${m?.createdAt ?? ""}|${m?.senderId ?? ""}|${m?.text ?? ""}`;
+  const seen = new Set(prev.map(keyOf));
+  const add = incoming.filter((m) => !seen.has(keyOf(m)));
+  if (!add.length) return prev;
+  return [...prev, ...add];
+}
+
 export default function ConversationPage() {
   const { id } = useParams();
 
@@ -17,11 +27,14 @@ export default function ConversationPage() {
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
-  const [meId, setMeId] = useState(null);      // ⬅️ ใช้แยกฝั่ง
+  const [meId, setMeId] = useState(null);
 
   const sendingRef = useRef(false);
   const inputRef = useRef(null);
   const scrollerRef = useRef(null);
+
+  // ✅ ตราประทับเวลาข้อความล่าสุดที่ “เราเห็นแล้ว” (ช่วยให้ poll ดึงเฉพาะใหม่ ๆ)
+  const lastTsRef = useRef(null);
 
   // ===== helpers: สมาชิกเป็น map ดูข้อมูลผู้ใช้จาก id ได้เร็ว
   const memberById = useMemo(() => {
@@ -38,6 +51,12 @@ export default function ConversationPage() {
   const getName = (u) =>
     [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "ผู้ใช้";
 
+  const scrollToBottom = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight + 9999;
+  };
+
   // ===== โหลดห้อง + ข้อความ (พร้อม meId)
   const load = async () => {
     setLoading(true);
@@ -47,8 +66,11 @@ export default function ConversationPage() {
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data?.message || "โหลดห้องสนทนาไม่สำเร็จ");
       setConv(data.conversation);
-      setMeId(data.meId || null);                   // ⬅️ รับ meId จาก API
+      setMeId(data.meId || null);
       setMessages(data.messages || []);
+      // ✅ ตั้ง lastTsRef จากข้อความล่าสุดที่เพิ่งโหลด
+      const last = (data.messages || [])[Math.max(0, (data.messages || []).length - 1)];
+      lastTsRef.current = last?.createdAt || null;
       queueMicrotask(scrollToBottom);
     } catch (e) {
       setErr(e.message || "เกิดข้อผิดพลาด");
@@ -66,13 +88,50 @@ export default function ConversationPage() {
       try {
         const payload = JSON.parse(ev.data || "{}");
         if ((payload?.type === "message" || payload?.type === "message:new") && payload.message) {
-          setMessages(prev => [...prev, payload.message]);
+          setMessages(prev => {
+            const next = mergeMessagesUnique(prev, [payload.message]);
+            // ✅ อัปเดต lastTsRef ให้ poll รู้ว่าได้ของใหม่แล้ว
+            lastTsRef.current = payload.message.createdAt;
+            return next;
+          });
           queueMicrotask(scrollToBottom);
         }
       } catch {}
     };
     es.onerror = () => { /* optional: retry/backoff */ };
     return () => es.close();
+  }, [id]);
+
+  // ===== Polling fallback ทุก 2 วินาที (ดึงเฉพาะที่ใหม่กว่า lastTsRef)
+  useEffect(() => {
+    if (!id) return;
+    let stop = false;
+
+    const tick = async () => {
+      if (stop) return;
+      const qs = lastTsRef.current
+        ? `?since=${encodeURIComponent(lastTsRef.current)}`
+        : `?take=1`; // ครั้งแรกถ้ายังไม่มี lastTs ก็ขอดู 1 รายการล่าสุดเฉย ๆ
+
+      try {
+        const res = await fetch(`/api/messages/${id}${qs}`, { cache: "no-store", credentials: "include" });
+        const data = await res.json().catch(()=>({}));
+        if (res.ok && Array.isArray(data?.messages) && data.messages.length) {
+          setMessages(prev => {
+            const next = mergeMessagesUnique(prev, data.messages);
+            const last = data.messages[data.messages.length - 1];
+            lastTsRef.current = last?.createdAt || lastTsRef.current;
+            return next;
+          });
+          queueMicrotask(scrollToBottom);
+        }
+      } catch {/* เงียบไว้ */}
+
+      setTimeout(tick, 2000); // 2 วิ
+    };
+
+    tick();
+    return () => { stop = true; };
   }, [id]);
 
   // ===== upload preview
@@ -107,7 +166,7 @@ export default function ConversationPage() {
       const data = await res.json().catch(()=>({}));
       if (!res.ok || data?.success === false) throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
 
-      // ล้างอินพุต (ตัวจริงจะไหลมาทาง SSE อยู่แล้ว)
+      // ล้างอินพุต (ตัวจริงจะไหลมาทาง SSE/หรือ Poll อยู่แล้ว)
       setText("");
       setFiles([]);
       previews.forEach(u => URL.revokeObjectURL(u));
@@ -119,12 +178,6 @@ export default function ConversationPage() {
     } finally {
       sendingRef.current = false;
     }
-  };
-
-  const scrollToBottom = () => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight + 9999;
   };
 
   if (loading) {
@@ -176,7 +229,6 @@ export default function ConversationPage() {
 
                 return (
                   <div key={m.id || `${m.createdAt}-${i}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                    {/* ซ้าย: avatar แล้วตามด้วย bubble / ขวา: bubble แล้วตามด้วย avatar */}
                     {!mine && (
                       <div className="mr-2 shrink-0 self-end">
                         <AvatarCircle user={u} size={36} />
