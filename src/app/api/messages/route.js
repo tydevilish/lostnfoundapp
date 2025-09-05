@@ -11,7 +11,10 @@ async function getAuthUser() {
   const token = cookieStore.get(TOKEN_NAME)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(JWT_SECRET));
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET)
+    );
     return { id: payload.sub };
   } catch {
     return null;
@@ -22,19 +25,39 @@ async function getAuthUser() {
 export async function GET() {
   try {
     const user = await getAuthUser();
-    if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    if (!user)
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
 
     const convos = await prisma.conversation.findMany({
       where: { members: { some: { userId: user.id } } },
       orderBy: { lastMessageAt: "desc" },
       include: {
         members: {
-          include: { user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } } },
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                avatarUrl: true,
+              },
+            },
+          },
         },
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { id: true, text: true, type: true, createdAt: true, attachments: true, senderId: true },
+          select: {
+            id: true,
+            text: true,
+            type: true,
+            createdAt: true,
+            attachments: true,
+            senderId: true,
+          },
         },
       },
     });
@@ -45,8 +68,10 @@ export async function GET() {
       return {
         id: c.id,
         isGroup: c.isGroup,
-        title: c.title || (other ? `${other.firstName} ${other.lastName}`.trim() : "แชท"),
-        otherUser: other,                      // เพื่อใช้บน client ได้เลย
+        title:
+          c.title ||
+          (other ? `${other.firstName} ${other.lastName}`.trim() : "แชท"),
+        otherUser: other, // เพื่อใช้บน client ได้เลย
         contextItemId: c.contextItemId || null,
         lastMessage: c.messages[0] || null,
         unread: me?.unreadCount || 0,
@@ -57,7 +82,10 @@ export async function GET() {
     return NextResponse.json({ success: true, items }, { status: 200 });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ success: false, message: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -65,15 +93,27 @@ export async function GET() {
 export async function POST(req) {
   try {
     const user = await getAuthUser();
-    if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    if (!user)
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
 
     const body = await req.json().catch(() => ({}));
     const toId = String(body?.to || "").trim();
     const contextItemId = body?.item ? String(body.item) : undefined;
     const text = (body?.text || "").toString();
 
-    if (!toId) return NextResponse.json({ success: false, message: "Missing `to`" }, { status: 400 });
-    if (toId === user.id) return NextResponse.json({ success: false, message: "Cannot chat with yourself" }, { status: 400 });
+    if (!toId)
+      return NextResponse.json(
+        { success: false, message: "Missing `to`" },
+        { status: 400 }
+      );
+    if (toId === user.id)
+      return NextResponse.json(
+        { success: false, message: "Cannot chat with yourself" },
+        { status: 400 }
+      );
 
     // หาแชทเดิม (1:1) ที่มีทั้งสองฝั่ง และ contextItemId (ถ้าส่งมา)
     const where = {
@@ -84,7 +124,12 @@ export async function POST(req) {
     };
 
     let convo = await prisma.conversation.findFirst({
-      where,
+      where: {
+        isGroup: false,
+        members: { some: { userId: user.id } },
+        AND: [{ members: { some: { userId: toId } } }],
+        ...(contextItemId ? { contextItemId } : {}),
+      },
       include: { members: true },
     });
 
@@ -92,11 +137,10 @@ export async function POST(req) {
       convo = await prisma.conversation.create({
         data: {
           isGroup: false,
-          ...(contextItemId ? { contextItemId } : {}),
-          lastMessageAt: new Date(),
+          contextItemId: contextItemId ?? null,
           members: { create: [{ userId: user.id }, { userId: toId }] },
+          lastMessageAt: new Date(),
         },
-        include: { members: true },
       });
     }
 
@@ -124,9 +168,15 @@ export async function POST(req) {
       });
     }
 
-    return NextResponse.json({ success: true, conversationId: convo.id }, { status: 200 });
+    return NextResponse.json(
+      { success: true, conversationId: convo.id },
+      { status: 200 }
+    );
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ success: false, message: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Server error" },
+      { status: 500 }
+    );
   }
 }

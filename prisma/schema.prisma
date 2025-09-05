@@ -37,27 +37,6 @@ model User {
   messagesSent  Message[]
 }
 
-model FoundItem {
-  id           String      @id @default(auto()) @map("_id") @db.ObjectId
-
-  createdById  String      @db.ObjectId
-  createdBy    User        @relation(fields: [createdById], references: [id])
-
-  name         String
-  category     String
-  description  String?
-  datetime     DateTime
-  place        String
-  color        String?
-  brand        String?
-
-  images       String[]    @default([])
-  status       FoundStatus @default(OPEN)
-
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-}
-
 enum MessageType {
   TEXT
   IMAGE
@@ -68,7 +47,11 @@ model Conversation {
   id             String               @id @default(auto()) @map("_id") @db.ObjectId
   isGroup        Boolean              @default(false)
   title          String?
-  contextItemId  String?              @db.ObjectId // อ้างอิง FoundItem แบบหลวม ๆ (optional)
+  contextItemId  String?              @db.ObjectId
+
+  // ตั้งชื่อ relation และระบุ fields/references ให้ชัด
+  contextItem    FoundItem?           @relation(name: "FoundItemConversations", fields: [contextItemId], references: [id])
+
   lastMessageAt  DateTime?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
@@ -77,6 +60,28 @@ model Conversation {
   messages       Message[]
 
   @@index([lastMessageAt])
+}
+
+model FoundItem {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  createdById  String      @db.ObjectId
+  createdBy    User        @relation(fields: [createdById], references: [id])
+
+  name         String
+  category     String
+  description  String?
+  datetime     DateTime
+  place        String
+  color        String?
+  brand        String?
+  images       String[]    @default([])
+  status       FoundStatus @default(OPEN)
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // ⬅️ เพิ่ม back-relation ให้สัมพันธ์กับ Conversation
+  conversationsAsContext Conversation[] @relation(name: "FoundItemConversations")
 }
 
 model ConversationMember {
