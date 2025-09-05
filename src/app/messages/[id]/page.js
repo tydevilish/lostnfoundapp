@@ -11,7 +11,7 @@ const EMOJIS = ["😀","😂","😊","😍","🤔","😎","🤝","🙏","🎉","
 const POLL_MS = { active: 1000, idle: 3000, hidden: 10000 };
 const JITTER = 200; // กระจายโหลดไม่ให้ยิงพร้อมกันเป๊ะ
 
-/** รวมรายการข้อความแบบกันซ้ำ (กันกรณี SSE + Poll ได้พร้อมกัน) */
+/** รวมข้อความกันซ้ำ (กันกรณี SSE + Poll) */
 function mergeMessagesUnique(prev = [], incoming = []) {
   if (!incoming.length) return prev;
   const keyOf = (m) => m?.id ?? `${m?.createdAt ?? ""}|${m?.senderId ?? ""}|${m?.text ?? ""}`;
@@ -21,12 +21,24 @@ function mergeMessagesUnique(prev = [], incoming = []) {
   return [...prev, ...add];
 }
 
+/** ตัดซ้ำด้วย id โดยคงลำดับเดิมไว้ */
+function dedupeByIdKeepOrder(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const m of arr) {
+    if (m?.id && seen.has(m.id)) continue;
+    if (m?.id) seen.add(m.id);
+    out.push(m);
+  }
+  return out;
+}
+
 export default function ConversationPage() {
   const { id } = useParams();
 
   const [loading, setLoading] = useState(true);
-  const [conv, setConv] = useState(null);      // { id, item, members:[{id, firstName, lastName, avatarUrl}] }
-  const [messages, setMessages] = useState([]); // [{ id, senderId, text, attachments, createdAt, sender? }]
+  const [conv, setConv] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [err, setErr] = useState("");
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);
@@ -37,25 +49,23 @@ export default function ConversationPage() {
   const inputRef = useRef(null);
   const scrollerRef = useRef(null);
 
-  // ✅ ตราประทับเวลาข้อความ “ล่าสุดที่เห็นแล้ว” สำหรับ polling
+  // optimistic store
+  const tempStoreRef = useRef(new Map()); // tempId -> { text, files }
+  const tempUrlsRef = useRef(new Map());  // tempId -> [objectURLs]
+
+  // polling/SSE refs
   const lastTsRef = useRef(null);
-  // ✅ เวลา “ล่าสุด” ที่เราเพิ่งได้รับ event (จาก SSE หรือ Poll) เอาไว้ลดการยิงซ้ำ
   const lastEventRef = useRef(Date.now());
 
-  // ===== helpers: สมาชิกเป็น map ดูข้อมูลผู้ใช้จาก id ได้เร็ว
+  // map สมาชิก
   const memberById = useMemo(() => {
     const m = new Map();
-    if (conv?.members) {
-      conv.members.forEach(u => m.set(u.id, u));
-    }
+    if (conv?.members) conv.members.forEach(u => m.set(u.id, u));
     return m;
   }, [conv]);
 
-  const getUserOfMessage = (m) =>
-    m?.sender || memberById.get(m?.senderId) || null;
-
-  const getName = (u) =>
-    [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "ผู้ใช้";
+  const getUserOfMessage = (m) => m?.sender || memberById.get(m?.senderId) || null;
+  const getName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "ผู้ใช้";
 
   const scrollToBottom = () => {
     const el = scrollerRef.current;
@@ -67,7 +77,7 @@ export default function ConversationPage() {
     const el = scrollerRef.current;
     if (!el) return false;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-    return gap < 120; // px
+    return gap < 120;
   };
 
   const nextDelay = () => {
@@ -78,7 +88,7 @@ export default function ConversationPage() {
     return base + Math.floor(Math.random() * JITTER);
   };
 
-  // ===== โหลดห้อง + ข้อความ (พร้อม meId)
+  // โหลดเริ่มต้น
   const load = async () => {
     setLoading(true);
     setErr("");
@@ -89,7 +99,6 @@ export default function ConversationPage() {
       setConv(data.conversation);
       setMeId(data.meId || null);
       setMessages(data.messages || []);
-      // ✅ ตั้ง lastTsRef จากข้อความล่าสุดที่เพิ่งโหลด
       const last = (data.messages || [])[Math.max(0, (data.messages || []).length - 1)];
       lastTsRef.current = last?.createdAt || null;
       lastEventRef.current = Date.now();
@@ -102,17 +111,32 @@ export default function ConversationPage() {
   };
   useEffect(() => { if (id) load(); /* eslint-disable-next-line */ }, [id]);
 
-  // ===== SSE (รับ message ใหม่)
+  // SSE
   useEffect(() => {
     if (!id) return;
     const es = new EventSource(`/api/messages/${id}/events`, { withCredentials: true });
     es.onmessage = (ev) => {
       try {
         const payload = JSON.parse(ev.data || "{}");
-        if ((payload?.type === "message" || payload?.type === "message:new") && payload.message) {
+        const msg = payload?.message;
+        if ((payload?.type === "message" || payload?.type === "message:new") && msg) {
           setMessages(prev => {
-            const next = mergeMessagesUnique(prev, [payload.message]);
-            lastTsRef.current = payload.message.createdAt; // ให้ poll รู้ว่าล่าสุดถึงไหน
+            // 🔥 ถ้ามี optimistic ของเราที่ “น่าจะตรงกัน” ให้แทนที่ ไม่ใช่เพิ่มใหม่
+            const idx = prev.findIndex(m =>
+              m.__optimistic &&
+              m.senderId === meId &&
+              (m.text || "") === (msg.text || "") &&
+              (m.attachments?.length || 0) === ((msg.attachments || []).length || 0)
+            );
+            if (idx !== -1) {
+              const arr = prev.slice();
+              arr[idx] = msg;
+              lastTsRef.current = msg.createdAt;
+              return dedupeByIdKeepOrder(arr);
+            }
+            // ปกติใช้ merge กันซ้ำด้วย id
+            const next = mergeMessagesUnique(prev, [msg]);
+            lastTsRef.current = msg.createdAt;
             return next;
           });
           lastEventRef.current = Date.now();
@@ -120,11 +144,11 @@ export default function ConversationPage() {
         }
       } catch {}
     };
-    es.onerror = () => { /* optional: retry/backoff */ };
+    es.onerror = () => {};
     return () => es.close();
-  }, [id]);
+  }, [id, meId]);
 
-  // ===== Polling fallback แบบ adaptive
+  // Polling fallback
   useEffect(() => {
     if (!id) return;
     let stopped = false;
@@ -132,22 +156,16 @@ export default function ConversationPage() {
     const tick = async () => {
       if (stopped) return;
 
-      // ถ้าเพิ่งได้ SSE event ไม่เกิน 1.5 วิ เลื่อนรอบไปก่อน ลดยิงซ้ำ
       if (Date.now() - lastEventRef.current <= 1500) {
         setTimeout(tick, nextDelay());
         return;
       }
-
-      // ถ้าออฟไลน์ก็รอไปก่อน
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         setTimeout(tick, nextDelay());
         return;
       }
 
-      const qs = lastTsRef.current
-        ? `?since=${encodeURIComponent(lastTsRef.current)}`
-        : `?take=1`; // ครั้งแรกถ้ายังไม่มี lastTs ก็ขอ 1 รายการล่าสุดเฉย ๆ
-
+      const qs = lastTsRef.current ? `?since=${encodeURIComponent(lastTsRef.current)}` : `?take=1`;
       try {
         const res = await fetch(`/api/messages/${id}${qs}`, { cache: "no-store", credentials: "include" });
         const data = await res.json().catch(() => ({}));
@@ -158,20 +176,19 @@ export default function ConversationPage() {
             lastTsRef.current = last?.createdAt || lastTsRef.current;
             return next;
           });
-          lastEventRef.current = Date.now(); // เพิ่งได้ของใหม่
+          lastEventRef.current = Date.now();
           queueMicrotask(scrollToBottom);
         }
-      } catch { /* เงียบไว้ */ }
+      } catch {}
 
       setTimeout(tick, nextDelay());
     };
 
-    // เริ่มด้วยดีเลย์สุ่มเล็กน้อย ลดโอกาสยิงพร้อมกัน
     setTimeout(tick, nextDelay());
     return () => { stopped = true; };
   }, [id, text]);
 
-  // ===== upload preview
+  // อัพโหลด preview
   const onPickFiles = (e) => {
     const arr = Array.from(e.target.files || []).filter(f => f.type.startsWith("image/"));
     if (!arr.length) return;
@@ -188,34 +205,113 @@ export default function ConversationPage() {
   };
   useEffect(() => () => previews.forEach(u => URL.revokeObjectURL(u)), [previews]);
 
-  // ===== ส่งข้อความ
+  // ส่งข้อความ (Optimistic + กันซ้ำ)
   const send = async () => {
     if (sendingRef.current) return;
-    if (!text.trim() && files.length === 0) return;
+    const payloadText = text.trim();
+    if (!payloadText && files.length === 0) return;
 
     sendingRef.current = true;
+
+    const tempId = `temp-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+    const tempUrls = files.map(f => URL.createObjectURL(f));
+    const tempMsg = {
+      id: tempId,
+      senderId: meId,
+      text: payloadText || null,
+      attachments: tempUrls,
+      createdAt: new Date().toISOString(),
+      __optimistic: true,
+      __failed: false,
+    };
+    tempStoreRef.current.set(tempId, { text: payloadText, files });
+    tempUrlsRef.current.set(tempId, tempUrls);
+
+    setMessages(prev => mergeMessagesUnique(prev, [tempMsg]));
+    queueMicrotask(scrollToBottom);
+
+    setText("");
+    setFiles([]);
+    setPreviews([]);
+    inputRef.current?.focus();
+
     try {
       const fd = new FormData();
-      if (text.trim()) fd.append("text", text.trim());
-      files.forEach(f => fd.append("attachments", f));
+      if (payloadText) fd.append("text", payloadText);
+      (tempStoreRef.current.get(tempId)?.files || []).forEach(f => fd.append("attachments", f));
 
       const res = await fetch(`/api/messages/${id}`, { method: "POST", body: fd, credentials: "include" });
       const data = await res.json().catch(()=>({}));
       if (!res.ok || data?.success === false) throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
 
-      // ล้างอินพุต (ตัวจริงจะไหลมาทาง SSE หรือ Poll)
-      setText("");
-      setFiles([]);
-      previews.forEach(u => URL.revokeObjectURL(u));
-      setPreviews([]);
-      inputRef.current?.focus();
+      // ✅ แทนที่ temp + กรองของซ้ำตาม real id (กันเคส SSE มาก่อน)
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== tempId && m.id !== data.message.id);
+        filtered.push(data.message);
+        return dedupeByIdKeepOrder(filtered);
+      });
+
+      const urls = tempUrlsRef.current.get(tempId) || [];
+      urls.forEach(u => URL.revokeObjectURL(u));
+      tempUrlsRef.current.delete(tempId);
+      tempStoreRef.current.delete(tempId);
+
+      lastTsRef.current = data.message?.createdAt || lastTsRef.current;
+      lastEventRef.current = Date.now();
       queueMicrotask(scrollToBottom);
     } catch (e) {
-      alert(e.message || "เกิดข้อผิดพลาด");
+      setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
     } finally {
       sendingRef.current = false;
     }
   };
+
+  const resendTemp = async (tempId) => {
+    if (sendingRef.current) return;
+    const payload = tempStoreRef.current.get(tempId);
+    if (!payload) return;
+
+    sendingRef.current = true;
+    setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: false } : m)));
+
+    try {
+      const fd = new FormData();
+      if (payload.text) fd.append("text", payload.text);
+      (payload.files || []).forEach(f => fd.append("attachments", f));
+
+      const res = await fetch(`/api/messages/${id}`, { method: "POST", body: fd, credentials: "include" });
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok || data?.success === false) throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
+
+      // ✅ กรอง temp + of same real id แล้วค่อยใส่ใหม่
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== tempId && m.id !== data.message.id);
+        filtered.push(data.message);
+        return dedupeByIdKeepOrder(filtered);
+      });
+
+      const urls = tempUrlsRef.current.get(tempId) || [];
+      urls.forEach(u => URL.revokeObjectURL(u));
+      tempUrlsRef.current.delete(tempId);
+      tempStoreRef.current.delete(tempId);
+
+      lastTsRef.current = data.message?.createdAt || lastTsRef.current;
+      lastEventRef.current = Date.now();
+      queueMicrotask(scrollToBottom);
+    } catch (e) {
+      setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
+    } finally {
+      sendingRef.current = false;
+    }
+  };
+
+  // เก็บกวาด URL ชั่วคราวเมื่อ unmount
+  useEffect(() => {
+    return () => {
+      for (const urls of tempUrlsRef.current.values()) urls.forEach((u) => URL.revokeObjectURL(u));
+      tempUrlsRef.current.clear();
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -289,6 +385,24 @@ export default function ConversationPage() {
                       <div className={`${mine ? "text-white/70" : "text-slate-500"} text-[11px] mt-1`}>
                         {new Date(m.createdAt).toLocaleString("th-TH", { timeStyle:"short", dateStyle:"short" })}
                       </div>
+
+                      {mine && m.__optimistic && !m.__failed && (
+                        <div className={`${mine ? "text-white/80" : "text-slate-500"} text-[11px] mt-0.5 flex items-center gap-1`}>
+                          <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse" />
+                          กำลังส่ง…
+                        </div>
+                      )}
+                      {mine && m.__failed && (
+                        <div className="text-[11px] mt-1 flex items-center gap-2">
+                          <span className="text-red-500 font-medium">ส่งไม่สำเร็จ</span>
+                          <button
+                            className="px-2 py-0.5 rounded-full border text-xs hover:bg-white/10"
+                            onClick={() => resendTemp(m.id)}
+                          >
+                            ลองอีกครั้ง
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {mine && (
