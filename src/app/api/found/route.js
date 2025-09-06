@@ -2,9 +2,6 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { TOKEN_NAME, verifyToken } from "@/lib/auth";
-import path from "path";
-import { promises as fs } from "fs";
-import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,49 +38,33 @@ function toDateOrNull(v) {
   return isNaN(d) ? null : d;
 }
 
-/** บันทึกรูปลง /public/uploads/found และคืน URL (เช่น /uploads/found/xxx.jpg) */
-async function saveImagesFromFormData(formData) {
-  const files = formData.getAll("images");
-  if (!files?.length) return [];
-  const saved = [];
+function normalizeImages(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 10);
+}
 
-  const uploadDir = path.join(process.cwd(), "public", "uploads", "found");
-  await fs.mkdir(uploadDir, { recursive: true });
-
-  for (const file of files) {
-    if (typeof file === "string") continue; // ป้องกัน edge case
-    // size limit ตัวอย่าง: 5MB
-    const MAX = 5 * 1024 * 1024;
-    if (file.size > MAX) throw new Error("ขนาดรูปต้องไม่เกิน 5MB ต่อรูป");
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const ext = (file.name?.split(".").pop() || "jpg").toLowerCase();
-    const name = `${crypto.randomUUID()}.${ext}`;
-    const fullPath = path.join(uploadDir, name);
-    await fs.writeFile(fullPath, buffer);
-    saved.push(`/uploads/found/${name}`);
-  }
-  return saved;
+async function fileToDataUrl(file) {
+  // แปลงไฟล์ (จาก form-data) เป็น Data URL base64 เพื่อเก็บลง DB (เหมือนวิธีแชท)
+  const MAX = 5 * 1024 * 1024; // 5MB ต่อไฟล์
+  if (file.size > MAX) throw new Error("ขนาดรูปต้องไม่เกิน 5MB ต่อรูป");
+  const arrayBuffer = await file.arrayBuffer();
+  const b64 = Buffer.from(arrayBuffer).toString("base64");
+  const mime = file.type || "application/octet-stream";
+  return `data:${mime};base64,${b64}`;
 }
 
 /* ---------- GET /api/found ---------- */
-/**
- * รองรับ query:
- * - mine=1 (ปริยาย) ให้ดึงเฉพาะของผู้ใช้คนนี้
- * - q, category, place, status=open|resolved
- * - from=YYYY-MM-DD, to=YYYY-MM-DD (เทียบกับ datetime)
- * (สามารถเพิ่ม paginate ภายหลังได้)
- */
 export async function GET(req) {
   try {
     const user = await getAuthedUser();
-    if (!user)
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
 
-    const mine = toBool(searchParams.get("mine"), true); // ปริยายเป็น true (หน้าของฉัน)
+    const mine = toBool(searchParams.get("mine"), true);
     const q = searchParams.get("q") || "";
     const category = searchParams.get("category") || "";
     const place = searchParams.get("place") || "";
@@ -92,8 +73,6 @@ export async function GET(req) {
     const to = toDateOrNull(searchParams.get("to"));
 
     const where = {};
-
-    // บังคับ “เฉพาะของฉัน” เมื่อ mine=true
     if (mine) where.createdById = user.id;
 
     if (q) {
@@ -113,7 +92,6 @@ export async function GET(req) {
       where.datetime = {};
       if (from) where.datetime.gte = from;
       if (to) {
-        // รวมทั้งวัน
         const end = new Date(to);
         end.setHours(23, 59, 59, 999);
         where.datetime.lte = end;
@@ -133,24 +111,16 @@ export async function GET(req) {
           place: true,
           color: true,
           brand: true,
-          images: true,
+          images: true, // string[]
           status: true,
           createdAt: true,
-          createdBy: {
-            select: { firstName: true, lastName: true, avatarUrl: true },
-          },
+          createdBy: { select: { firstName: true, lastName: true, avatarUrl: true } },
         },
       }),
-      // นับทั้งหมดของฉัน (ไม่ใส่ฟิลเตอร์อื่น เพื่อแสดง total ในหัว)
       prisma.foundItem.count({ where: { createdById: user.id } }),
     ]);
 
-    // จัดรูปให้แนบ "reporter" เพื่อสื่อสารกับ UI ได้สะดวก
-    const shaped = items.map((it) => ({
-      ...it,
-      reporter: it.createdBy,
-    }));
-
+    const shaped = items.map((it) => ({ ...it, reporter: it.createdBy }));
     return NextResponse.json({ items: shaped, mineCount });
   } catch (e) {
     console.error("GET /api/found error:", e);
@@ -160,28 +130,55 @@ export async function GET(req) {
 
 /* ---------- POST /api/found ---------- */
 /**
- * รับ multipart/form-data:
- *  - name, category, description?, datetime (ISO), place, color?, brand?, images[]
- * สร้าง FoundItem โดย owner = ผู้ใช้งานจาก cookie
+ * รองรับ 2 แบบ:
+ * 1) multipart/form-data  -> fields + images (File[])
+ * 2) application/json     -> { name, category, ..., images: string[] }
+ * บันทึกรูปเป็น Data URL (base64) ลง DB แบบเดียวกับแชท
  */
 export async function POST(req) {
   try {
     const user = await getAuthedUser();
     if (!user)
+      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+
+    const contentType = (req.headers.get("content-type") || "").toLowerCase();
+
+    let name, category, description, datetimeRaw, place, color, brand, images = [];
+
+    if (contentType.includes("multipart/form-data")) {
+      // ----- รับแบบ FormData (รองรับโค้ดหน้าเว็บปัจจุบัน) -----
+      const form = await req.formData();
+      name = String(form.get("name") || "").trim();
+      category = String(form.get("category") || "").trim();
+      description = String(form.get("description") || "").trim();
+      datetimeRaw = String(form.get("datetime") || "").trim();
+      place = String(form.get("place") || "").trim();
+      color = form.get("color") ? String(form.get("color")).trim() : null;
+      brand = form.get("brand") ? String(form.get("brand")).trim() : null;
+
+      const files = form.getAll("images").filter((f) => typeof f !== "string");
+      images = [];
+      for (const f of files) {
+        images.push(await fileToDataUrl(f));
+      }
+    } else if (contentType.includes("application/json")) {
+      // ----- รับแบบ JSON (เหมือนแชท) -----
+      const body = await req.json().catch(() => ({}));
+      name = String(body.name || "").trim();
+      category = String(body.category || "").trim();
+      description = String(body.description || "").trim();
+      datetimeRaw = String(body.datetime || "").trim();
+      place = String(body.place || "").trim();
+      color = body.color ? String(body.color).trim() : null;
+      brand = body.brand ? String(body.brand).trim() : null;
+      images = normalizeImages(body.images);
+    } else {
+      // ชนิดอื่น ๆ ไม่รองรับ
       return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
+        { success: false, message: "กรุณาส่งเป็น multipart/form-data หรือ JSON" },
+        { status: 400 }
       );
-
-    const form = await req.formData();
-
-    const name = (form.get("name") || "").toString().trim();
-    const category = (form.get("category") || "").toString().trim();
-    const description = (form.get("description") || "").toString().trim();
-    const datetimeRaw = (form.get("datetime") || "").toString().trim();
-    const place = (form.get("place") || "").toString().trim();
-    const color = (form.get("color") || "").toString().trim();
-    const brand = (form.get("brand") || "").toString().trim();
+    }
 
     if (!name || !category || !datetimeRaw || !place) {
       return NextResponse.json(
@@ -198,8 +195,6 @@ export async function POST(req) {
       );
     }
 
-    const imageUrls = await saveImagesFromFormData(form);
-
     const created = await prisma.foundItem.create({
       data: {
         createdById: user.id,
@@ -208,9 +203,9 @@ export async function POST(req) {
         description: description || null,
         datetime: dt,
         place,
-        color: color || null,
-        brand: brand || null,
-        images: imageUrls,
+        color,
+        brand,
+        images, // เก็บ data URLs ตรง ๆ
         status: "OPEN",
       },
       select: {
@@ -224,9 +219,7 @@ export async function POST(req) {
         brand: true,
         images: true,
         status: true,
-        createdBy: {
-          select: { firstName: true, lastName: true, avatarUrl: true },
-        },
+        createdBy: { select: { firstName: true, lastName: true, avatarUrl: true } },
       },
     });
 
@@ -238,7 +231,7 @@ export async function POST(req) {
   } catch (e) {
     console.error("POST /api/found error:", e);
     return NextResponse.json(
-      { success: false, message: e.message || "Server error" },
+      { success: false, message: e?.message || "Server error" },
       { status: 500 }
     );
   }
