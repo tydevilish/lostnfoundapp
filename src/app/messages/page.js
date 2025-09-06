@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 export default function MessagesListPage() {
@@ -7,18 +7,34 @@ export default function MessagesListPage() {
   const [items, setItems] = useState([]);
   const [err, setErr] = useState("");
 
+  const lastEventRef = useRef(Date.now());
+
+  const upsert = (prev, item) => {
+    const idx = prev.findIndex(x => x.id === item.id);
+    let next = idx === -1 ? [item, ...prev] : prev.map((x, i) => (i === idx ? { ...x, ...item } : x));
+    next = next.sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+    return next;
+    // หมายเหตุ: ใช้ lastMessageAt เป็นตัวจัดเรียง — ห้องที่มีข้อความใหม่เด้งขึ้นบน
+  };
+
   const fetchList = async () => {
-    setLoading(true); setErr("");
+    setErr("");
     try {
       const res = await fetch("/api/messages", { cache: "no-store", credentials: "include" });
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data?.message || "โหลดรายการไม่สำเร็จ");
-      setItems(data.items || []);
+      setItems((prev) => {
+        // ถ้าเคยมีอยู่แล้ว: merge ทีละรายการ (กันกระพริบ)
+        const byId = new Map(prev.map(x => [x.id, x]));
+        const merged = data.items?.map(it => ({ ...(byId.get(it.id) || {}), ...it })) ?? [];
+        return merged.sort((a,b)=> new Date(b.lastMessageAt||0) - new Date(a.lastMessageAt||0));
+      });
     } catch(e) {
       setErr(e.message || "เกิดข้อผิดพลาด");
     } finally { setLoading(false); }
   };
 
+  // โหลดครั้งแรก + รีเฟรชเมื่อ focus/visible
   useEffect(() => {
     fetchList();
     const onFocus = () => fetchList();
@@ -29,6 +45,39 @@ export default function MessagesListPage() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVis);
     };
+  }, []);
+
+  // SSE: realtime inbox
+  useEffect(() => {
+    const es = new EventSource("/api/messages/inbox/events", { withCredentials: true });
+    es.onmessage = (ev) => {
+      try {
+        const payload = JSON.parse(ev.data || "{}");
+        if (payload?.type === "inbox:upsert" && payload.item) {
+          setItems(prev => upsert(prev, payload.item));
+          lastEventRef.current = Date.now();
+        }
+      } catch {}
+    };
+    es.onerror = () => { /* เงียบไว้ (สลับเป็น polling แทน) */ };
+    return () => es.close();
+  }, []);
+
+  // Polling fallback: ถ้า 20s ไม่มีสัญญาณ SSE และแท็บมองเห็น → refetch
+  useEffect(() => {
+    let stopped = false;
+    const loop = async () => {
+      if (stopped) return;
+      const visible = typeof document !== "undefined" ? document.visibilityState === "visible" : true;
+      const idle = Date.now() - lastEventRef.current > 20000;
+      if (visible && idle) {
+        await fetchList();
+        lastEventRef.current = Date.now();
+      }
+      setTimeout(loop, visible ? 20000 : 60000);
+    };
+    loop();
+    return () => { stopped = true; };
   }, []);
 
   return (

@@ -1,4 +1,3 @@
-// app/api/messages/[id]/route.js
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
@@ -8,7 +7,6 @@ const TOKEN_NAME = "lf_token";
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
 const isObjectId = (s) => typeof s === "string" && /^[0-9a-fA-F]{24}$/.test(s);
 
-// ---------- auth ----------
 async function getAuthUser() {
   const token = (await cookies()).get(TOKEN_NAME)?.value;
   if (!token) return null;
@@ -41,11 +39,12 @@ export async function GET(_req, ctx) {
       );
     }
 
-    // ✅ พารามิเตอร์สำหรับ polling
     const url = new URL(_req.url);
     const sinceStr = url.searchParams.get("since");
     const takeParam = parseInt(url.searchParams.get("take") || "200", 10);
-    const take = Number.isFinite(takeParam) ? Math.min(Math.max(takeParam, 1), 500) : 200;
+    const take = Number.isFinite(takeParam)
+      ? Math.min(Math.max(takeParam, 1), 500)
+      : 200;
 
     const convo = await prisma.conversation.findFirst({
       where: { id, members: { some: { userId: me.id } } },
@@ -53,12 +52,23 @@ export async function GET(_req, ctx) {
         members: {
           include: {
             user: {
-              select: { id: true, firstName: true, lastName: true, avatarUrl: true },
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                avatarUrl: true,
+              },
             },
           },
         },
         contextItem: {
-          select: { id: true, name: true, images: true, category: true, place: true },
+          select: {
+            id: true,
+            name: true,
+            images: true,
+            category: true,
+            place: true,
+          },
         },
       },
     });
@@ -115,7 +125,7 @@ export async function GET(_req, ctx) {
   }
 }
 
-// ---------- POST: ส่งข้อความ (text + แนบรูป) ----------
+// ---------- POST: ส่งข้อความ (text + แนบรูป) + broadcast ไปหาหน้ารวมแชท ----------
 export async function POST(req, ctx) {
   try {
     const user = await getAuthUser();
@@ -132,7 +142,6 @@ export async function POST(req, ctx) {
         { status: 400 }
       );
 
-    // ต้องเป็นสมาชิกห้อง
     const member = await prisma.conversationMember.findFirst({
       where: { conversationId: id, userId: user.id },
       select: { id: true },
@@ -143,7 +152,7 @@ export async function POST(req, ctx) {
         { status: 403 }
       );
 
-    // ----- รับได้ทั้ง JSON และ multipart/form-data
+    // ----- รับ JSON หรือ multipart/form-data
     const ct = req.headers.get("content-type") || "";
     let text = "";
     let attachments = [];
@@ -154,20 +163,18 @@ export async function POST(req, ctx) {
       if (Array.isArray(body?.attachments))
         attachments = body.attachments.map(String);
       else if (Array.isArray(body?.images))
-        attachments = body.images.map(String); // backward compat
+        attachments = body.images.map(String);
     } else if (ct.includes("multipart/form-data")) {
       const fd = await req.formData();
       text = (fd.get("text") || "").toString().trim().slice(0, 5000);
-      // รองรับทั้ง "attachments" และ "images"
       let files = fd.getAll("attachments").filter(Boolean);
       if (!files.length) files = fd.getAll("images").filter(Boolean);
-
       for (const f of files) {
         if (typeof f?.arrayBuffer === "function") {
           const ab = await f.arrayBuffer();
           const b64 = Buffer.from(ab).toString("base64");
           const mime = f.type || "application/octet-stream";
-          attachments.push(`data:${mime};base64,${b64}`); // เดโม่: เก็บ dataURL
+          attachments.push(`data:${mime};base64,${b64}`);
         }
       }
     }
@@ -211,7 +218,7 @@ export async function POST(req, ctx) {
       data: { lastSeenAt: new Date() },
     });
 
-    // dev/local ยังเผื่อ broadcast ผ่าน globalThis (กรณี POST/GET อยู่ instance เดียว)
+    // 🔔 แจ้งผู้ฟัง SSE ในห้องนี้ (local instance)
     try {
       const hubs = (globalThis.__sseHubs ??= new Map());
       const subs = hubs.get(id);
@@ -223,7 +230,81 @@ export async function POST(req, ctx) {
         subs.forEach((fn) => fn(payload));
       }
     } catch (e) {
-      console.warn("SSE notify fail:", e);
+      console.warn("SSE room notify fail:", e);
+    }
+
+    // 🔔 แจ้ง “หน้ารวมแชท” ของสมาชิกทุกคน
+    try {
+      // เตรียมข้อมูลสรุปแชท (ใช้ร่วมกันทุกคน)
+      const convo = await prisma.conversation.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          lastMessageAt: true,
+          contextItem: { select: { name: true } },
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  avatarUrl: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const hubs = (globalThis.__inboxHubs ??= new Map());
+      for (const m of convo.members) {
+        const viewerId = m.userId;
+        const cm = await prisma.conversationMember.findUnique({
+          where: {
+            conversationId_userId: { conversationId: id, userId: viewerId },
+          },
+          select: { unreadCount: true },
+        });
+
+        const others = convo.members
+          .filter((x) => x.user.id !== viewerId)
+          .map((x) => x.user);
+        const primary = others[0] || null;
+        const title =
+          convo.contextItem?.name ||
+          (convo.members.length === 2
+            ? [primary?.firstName, primary?.lastName]
+                .filter(Boolean)
+                .join(" ") || "การสนทนา"
+            : `การสนทนากลุ่ม (${convo.members.length} คน)`);
+
+        const item = {
+          id: convo.id,
+          title,
+          otherUser: primary
+            ? {
+                firstName: primary.firstName,
+                lastName: primary.lastName,
+                avatarUrl: primary.avatarUrl,
+              }
+            : null,
+          lastMessage: { id: msg.id, type: msg.type, text: msg.text || null },
+          lastMessageAt: msg.createdAt,
+          unread: cm?.unreadCount || 0,
+        };
+
+        const subs = hubs.get(viewerId);
+        if (subs) {
+          const payload = `data: ${JSON.stringify({
+            type: "inbox:upsert",
+            item,
+          })}\n\n`;
+          subs.forEach((fn) => fn(payload));
+        }
+      }
+    } catch (e) {
+      console.warn("SSE inbox notify fail:", e);
     }
 
     return NextResponse.json({ success: true, message: msg }, { status: 200 });
