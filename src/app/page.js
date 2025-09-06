@@ -374,6 +374,9 @@ function CompactItemCard({ item, kind }) {
   const avatarUrl = item.createdBy?.avatarUrl || item.owner?.avatarUrl || item.reporter?.avatarUrl || null;
   const statusResolved = (item.status || "").toString().toUpperCase() === "RESOLVED";
 
+  const initials = (name="") =>
+    (name.split(" ").map(s => s[0]?.toUpperCase() || "").slice(0,2).join("")) || "U";
+
   return (
     <Link href={link} className="block group">
       <div className="bg-white rounded-xl border border-slate-100 hover:border-blue-200 p-4 transition-all hover:shadow-md hover:-translate-y-0.5">
@@ -394,20 +397,34 @@ function CompactItemCard({ item, kind }) {
                 {item.name}
               </h4>
               {kind === "found" && (
-                <span className={`px-2 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
-                  statusResolved ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
-                }`}>
+                <span
+                  className={`px-2 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
+                    statusResolved ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                  }`}
+                >
                   {statusResolved ? "ส่งคืนแล้ว" : "รอเจ้าของ"}
                 </span>
               )}
             </div>
+
             <p className="text-sm text-slate-600 line-clamp-2 mb-3">{item.description}</p>
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1">📍 <span className="truncate max-w-[80px]">{item.place}</span></span>
-                <span className="flex items-center gap-1">🕒 {fmt(item.datetime)}</span>
+
+            {/* ⬇️ ตรงนี้คือส่วนที่ปรับ: มือถือซ้อน 2 แถว ชิดซ้าย; จอ md ขึ้นไปเหมือนเดิม */}
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1.5 md:gap-2 text-xs text-slate-500">
+              {/* แถว 1: สถานที่ + เวลา */}
+              <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                <span className="flex items-center gap-1 min-w-0">
+                  <span>📍</span>
+                  <span className="truncate max-w-[160px] sm:max-w-[220px]">{item.place}</span>
+                </span>
+                <span className="flex items-center gap-1 shrink-0">
+                  <span>🕒</span>
+                  <span className="truncate">{fmt(item.datetime)}</span>
+                </span>
               </div>
-              <div className="flex items-center gap-2">
+
+              {/* แถว 2 (มือถือ) / ขวา (เดสก์ท็อป): ผู้แจ้ง */}
+              <div className="flex items-center gap-2 md:justify-end">
                 {avatarUrl ? (
                   <img src={avatarUrl} alt={reporterName} className="w-6 h-6 rounded-full object-cover" />
                 ) : (
@@ -415,12 +432,16 @@ function CompactItemCard({ item, kind }) {
                     {initials(reporterName)}
                   </div>
                 )}
-                <span className="font-medium text-slate-700 truncate max-w-[60px]">{reporterName}</span>
+                <span className="font-medium text-slate-700 truncate max-w-[120px] sm:max-w-[160px]">
+                  โดย {reporterName}
+                </span>
               </div>
             </div>
+            {/* ⬆️ จบส่วนที่ปรับ */}
           </div>
         </div>
       </div>
     </Link>
   );
 }
+
