@@ -9,9 +9,19 @@ const EMOJIS = ["😀","😂","😊","😍","🤔","😎","🤝","🙏","🎉","
 
 // ===== ตั้งค่าความถี่ Poll แบบ Adaptive =====
 const POLL_MS = { active: 1000, idle: 3000, hidden: 10000 };
-const JITTER = 200; // กระจายโหลดไม่ให้ยิงพร้อมกันเป๊ะ
+const JITTER = 200; // กระจายโหลดให้ไม่ยิงพร้อมกันเป๊ะ
 
-/** รวมข้อความกันซ้ำ (กันกรณี SSE + Poll) */
+/** ทำความสะอาดข้อความก่อนเทียบ */
+const normalizeText = (t = "") => t.replace(/\s+/g, " ").trim();
+
+/** นับรูปใน message */
+const attachCount = (m) => (m?.attachments?.length ?? m?.images?.length ?? 0);
+
+/** ลายเซ็นข้อความ (ตัวล็อก) */
+const signatureOf = (m) =>
+  `${m?.senderId || ""}|${normalizeText(m?.text || "")}|${attachCount(m)}`;
+
+/** รวมข้อความกันซ้ำพื้นฐาน (กัน Poll ดึงมาแทรกซ้ำ) */
 function mergeMessagesUnique(prev = [], incoming = []) {
   if (!incoming.length) return prev;
   const keyOf = (m) => m?.id ?? `${m?.createdAt ?? ""}|${m?.senderId ?? ""}|${m?.text ?? ""}`;
@@ -21,10 +31,10 @@ function mergeMessagesUnique(prev = [], incoming = []) {
   return [...prev, ...add];
 }
 
-/** ตัดซ้ำด้วย id โดยคงลำดับเดิมไว้ */
+/** ตัดซ้ำด้วย id โดยคงลำดับ */
 function dedupeByIdKeepOrder(arr) {
-  const seen = new Set();
   const out = [];
+  const seen = new Set();
   for (const m of arr) {
     if (m?.id && seen.has(m.id)) continue;
     if (m?.id) seen.add(m.id);
@@ -49,15 +59,19 @@ export default function ConversationPage() {
   const inputRef = useRef(null);
   const scrollerRef = useRef(null);
 
-  // optimistic store
+  // ===== optimistic stores
   const tempStoreRef = useRef(new Map()); // tempId -> { text, files }
   const tempUrlsRef = useRef(new Map());  // tempId -> [objectURLs]
 
-  // polling/SSE refs
+  // ===== lock: ชุดลายเซ็นที่กำลังส่งอยู่ (มี temp แสดงอยู่)
+  const pendingSigRef = useRef(new Set());     // Set<string>
+  const tempIdBySigRef = useRef(new Map());    // sig -> tempId
+
+  // ===== polling / SSE
   const lastTsRef = useRef(null);
   const lastEventRef = useRef(Date.now());
 
-  // map สมาชิก
+  // ===== สมาชิกเป็น map
   const memberById = useMemo(() => {
     const m = new Map();
     if (conv?.members) conv.members.forEach(u => m.set(u.id, u));
@@ -88,7 +102,7 @@ export default function ConversationPage() {
     return base + Math.floor(Math.random() * JITTER);
   };
 
-  // โหลดเริ่มต้น
+  // ===== โหลดเริ่มต้น
   const load = async () => {
     setLoading(true);
     setErr("");
@@ -111,7 +125,29 @@ export default function ConversationPage() {
   };
   useEffect(() => { if (id) load(); /* eslint-disable-next-line */ }, [id]);
 
-  // SSE
+  // ===== helper: แทนที่ temp ตามลายเซ็น (ไม่ให้มี 2 อันพร้อมกัน)
+  const replaceOptimisticBySignature = (realMsg) => {
+    const sig = signatureOf(realMsg);
+    if (!pendingSigRef.current.has(sig)) return false;
+    const tempId = tempIdBySigRef.current.get(sig);
+    setMessages(prev => {
+      const idx = prev.findIndex(m => m.id === tempId);
+      if (idx === -1) return prev; // ไม่เจอ temp ก็อย่าไป append — รอ POST แทน
+      const arr = prev.slice();
+      arr[idx] = realMsg; // แทนที่ตรงตำแหน่งเดิม → ไม่เกิด flash ซ้ำ
+      return dedupeByIdKeepOrder(arr);
+    });
+    // เก็บกวาด temp resources
+    const urls = tempUrlsRef.current.get(tempId) || [];
+    urls.forEach(u => URL.revokeObjectURL(u));
+    tempUrlsRef.current.delete(tempId);
+    tempStoreRef.current.delete(tempId);
+    pendingSigRef.current.delete(sig);
+    tempIdBySigRef.current.delete(sig);
+    return true;
+  };
+
+  // ===== SSE
   useEffect(() => {
     if (!id) return;
     const es = new EventSource(`/api/messages/${id}/events`, { withCredentials: true });
@@ -120,21 +156,15 @@ export default function ConversationPage() {
         const payload = JSON.parse(ev.data || "{}");
         const msg = payload?.message;
         if ((payload?.type === "message" || payload?.type === "message:new") && msg) {
+          // ถ้าเป็นของเราและลายเซ็นตรงกับที่กำลังส่ง → แทนที่ temp (ไม่ append)
+          if (msg.senderId === meId && replaceOptimisticBySignature(msg)) {
+            lastTsRef.current = msg.createdAt;
+            lastEventRef.current = Date.now();
+            queueMicrotask(scrollToBottom);
+            return;
+          }
+          // ปกติ: merge กันซ้ำ
           setMessages(prev => {
-            // 🔥 ถ้ามี optimistic ของเราที่ “น่าจะตรงกัน” ให้แทนที่ ไม่ใช่เพิ่มใหม่
-            const idx = prev.findIndex(m =>
-              m.__optimistic &&
-              m.senderId === meId &&
-              (m.text || "") === (msg.text || "") &&
-              (m.attachments?.length || 0) === ((msg.attachments || []).length || 0)
-            );
-            if (idx !== -1) {
-              const arr = prev.slice();
-              arr[idx] = msg;
-              lastTsRef.current = msg.createdAt;
-              return dedupeByIdKeepOrder(arr);
-            }
-            // ปกติใช้ merge กันซ้ำด้วย id
             const next = mergeMessagesUnique(prev, [msg]);
             lastTsRef.current = msg.createdAt;
             return next;
@@ -148,7 +178,7 @@ export default function ConversationPage() {
     return () => es.close();
   }, [id, meId]);
 
-  // Polling fallback
+  // ===== Polling fallback (ใช้ signature เหมือน SSE)
   useEffect(() => {
     if (!id) return;
     let stopped = false;
@@ -171,10 +201,33 @@ export default function ConversationPage() {
         const data = await res.json().catch(() => ({}));
         if (res.ok && Array.isArray(data?.messages) && data.messages.length) {
           setMessages(prev => {
-            const next = mergeMessagesUnique(prev, data.messages);
+            // ลองแทนที่ temp ถ้าข้อความจากตัวเองตรงลายเซ็น
+            let arr = prev;
+            for (const m of data.messages) {
+              if (m.senderId === meId && pendingSigRef.current.has(signatureOf(m))) {
+                const tempId = tempIdBySigRef.current.get(signatureOf(m));
+                const idx = arr.findIndex(x => x.id === tempId);
+                if (idx !== -1) {
+                  const copy = arr.slice();
+                  copy[idx] = m;
+                  arr = copy;
+                  // cleanup lock ของอันนี้ไว้ก่อน
+                  const urls = tempUrlsRef.current.get(tempId) || [];
+                  urls.forEach(u => URL.revokeObjectURL(u));
+                  tempUrlsRef.current.delete(tempId);
+                  tempStoreRef.current.delete(tempId);
+                  pendingSigRef.current.delete(signatureOf(m));
+                  tempIdBySigRef.current.delete(signatureOf(m));
+                }
+              } else {
+                // อันที่ไม่ใช่ของเรา: ค่อยรวมทีหลัง
+              }
+            }
+            // รวมทั้งหมดแบบกันซ้ำ
+            const merged = mergeMessagesUnique(arr, data.messages);
             const last = data.messages[data.messages.length - 1];
             lastTsRef.current = last?.createdAt || lastTsRef.current;
-            return next;
+            return merged;
           });
           lastEventRef.current = Date.now();
           queueMicrotask(scrollToBottom);
@@ -186,9 +239,9 @@ export default function ConversationPage() {
 
     setTimeout(tick, nextDelay());
     return () => { stopped = true; };
-  }, [id, text]);
+  }, [id, text, meId]);
 
-  // อัพโหลด preview
+  // ===== อัพโหลด preview
   const onPickFiles = (e) => {
     const arr = Array.from(e.target.files || []).filter(f => f.type.startsWith("image/"));
     if (!arr.length) return;
@@ -205,7 +258,7 @@ export default function ConversationPage() {
   };
   useEffect(() => () => previews.forEach(u => URL.revokeObjectURL(u)), [previews]);
 
-  // ส่งข้อความ (Optimistic + กันซ้ำ)
+  // ===== ส่งข้อความ (Optimistic + Signature lock)
   const send = async () => {
     if (sendingRef.current) return;
     const payloadText = text.trim();
@@ -224,12 +277,19 @@ export default function ConversationPage() {
       __optimistic: true,
       __failed: false,
     };
+
+    // ลงทะเบียนลายเซ็นล็อก
+    const tempSig = signatureOf(tempMsg);
+    pendingSigRef.current.add(tempSig);
+    tempIdBySigRef.current.set(tempSig, tempId);
+
     tempStoreRef.current.set(tempId, { text: payloadText, files });
     tempUrlsRef.current.set(tempId, tempUrls);
 
     setMessages(prev => mergeMessagesUnique(prev, [tempMsg]));
     queueMicrotask(scrollToBottom);
 
+    // เคลียร์อินพุตทันที
     setText("");
     setFiles([]);
     setPreviews([]);
@@ -244,23 +304,41 @@ export default function ConversationPage() {
       const data = await res.json().catch(()=>({}));
       if (!res.ok || data?.success === false) throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
 
-      // ✅ แทนที่ temp + กรองของซ้ำตาม real id (กันเคส SSE มาก่อน)
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== tempId && m.id !== data.message.id);
-        filtered.push(data.message);
-        return dedupeByIdKeepOrder(filtered);
-      });
+      const real = data.message;
 
-      const urls = tempUrlsRef.current.get(tempId) || [];
-      urls.forEach(u => URL.revokeObjectURL(u));
-      tempUrlsRef.current.delete(tempId);
-      tempStoreRef.current.delete(tempId);
+      // ถ้า SSE/Poll ได้แทนที่ไปแล้ว → แค่อัปเดตลอค/เคลียร์ temp
+      if (!pendingSigRef.current.has(tempSig)) {
+        // temp ถูกแทนที่แล้ว โดย SSE/Poll
+        // ensure มี real อยู่แล้ว → ไม่ต้อง push
+        setMessages(prev => dedupeByIdKeepOrder(prev)); // no-op safety
+      } else {
+        // ยังไม่ถูกแทนที่ → แทนที่ temp ตรงนี้
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === tempId);
+          if (idx === -1) return mergeMessagesUnique(prev, [real]); // กันกรณีหลุด
+          const arr = prev.slice();
+          arr[idx] = real;
+          return dedupeByIdKeepOrder(arr);
+        });
+        // เก็บกวาด URL ของ temp
+        const urls = tempUrlsRef.current.get(tempId) || [];
+        urls.forEach(u => URL.revokeObjectURL(u));
+        tempUrlsRef.current.delete(tempId);
+        tempStoreRef.current.delete(tempId);
+      }
 
-      lastTsRef.current = data.message?.createdAt || lastTsRef.current;
+      // ปลดล็อกลายเซ็น
+      pendingSigRef.current.delete(tempSig);
+      tempIdBySigRef.current.delete(tempSig);
+
+      lastTsRef.current = real?.createdAt || lastTsRef.current;
       lastEventRef.current = Date.now();
       queueMicrotask(scrollToBottom);
     } catch (e) {
+      // ส่งพลาด → แจ้งสถานะและปลดล็อก เพื่อให้ข้อความฝั่งเซิร์ฟเวอร์ในอนาคต (ถ้ามี) ไม่โดน drop
       setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
+      pendingSigRef.current.delete(tempSig);
+      tempIdBySigRef.current.delete(tempSig);
     } finally {
       sendingRef.current = false;
     }
@@ -274,6 +352,12 @@ export default function ConversationPage() {
     sendingRef.current = true;
     setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: false } : m)));
 
+    // ลงทะเบียนลายเซ็นใหม่ (ไฟล์/ข้อความเดิม)
+    const tempMsgLike = { id: tempId, senderId: meId, text: payload.text, attachments: (tempUrlsRef.current.get(tempId) || []) };
+    const tempSig = signatureOf(tempMsgLike);
+    pendingSigRef.current.add(tempSig);
+    tempIdBySigRef.current.set(tempSig, tempId);
+
     try {
       const fd = new FormData();
       if (payload.text) fd.append("text", payload.text);
@@ -283,23 +367,30 @@ export default function ConversationPage() {
       const data = await res.json().catch(()=>({}));
       if (!res.ok || data?.success === false) throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
 
-      // ✅ กรอง temp + of same real id แล้วค่อยใส่ใหม่
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== tempId && m.id !== data.message.id);
-        filtered.push(data.message);
-        return dedupeByIdKeepOrder(filtered);
-      });
+      const real = data.message;
 
-      const urls = tempUrlsRef.current.get(tempId) || [];
-      urls.forEach(u => URL.revokeObjectURL(u));
-      tempUrlsRef.current.delete(tempId);
-      tempStoreRef.current.delete(tempId);
+      // ถ้ายังล็อกอยู่ → แทนที่ temp
+      if (pendingSigRef.current.has(tempSig)) {
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === tempId);
+          const arr = idx === -1 ? prev.slice() : (() => { const a=prev.slice(); a[idx]=real; return a; })();
+          return dedupeByIdKeepOrder(arr);
+        });
+        const urls = tempUrlsRef.current.get(tempId) || [];
+        urls.forEach(u => URL.revokeObjectURL(u));
+        tempUrlsRef.current.delete(tempId);
+        tempStoreRef.current.delete(tempId);
+      }
+      pendingSigRef.current.delete(tempSig);
+      tempIdBySigRef.current.delete(tempSig);
 
-      lastTsRef.current = data.message?.createdAt || lastTsRef.current;
+      lastTsRef.current = real?.createdAt || lastTsRef.current;
       lastEventRef.current = Date.now();
       queueMicrotask(scrollToBottom);
     } catch (e) {
       setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
+      pendingSigRef.current.delete(tempSig);
+      tempIdBySigRef.current.delete(tempSig);
     } finally {
       sendingRef.current = false;
     }
