@@ -11,7 +11,7 @@ export default function Navigation() {
   const [checking, setChecking] = useState(true);
   const menuRef = useRef(null);
 
-  // ✅ ใช้คลาสรวมกันเพื่อกันตกลำดับบรรทัดในภาษาไทย
+  // ✅ กันคำไทยตกลำดับบรรทัด
   const NO_WRAP = "whitespace-nowrap [word-break:keep-all] [hyphens:none]";
 
   useEffect(() => {
@@ -23,7 +23,8 @@ export default function Navigation() {
           const data = await res.json();
           setUser(data.user);
         }
-      } catch {} finally {
+      } catch {
+      } finally {
         if (alive) setChecking(false);
       }
     })();
@@ -45,8 +46,12 @@ export default function Navigation() {
   }, []);
 
   const signOut = async () => {
-    try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
-    setUser(null); setMenuOpen(false); setOpen(false);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    setUser(null);
+    setMenuOpen(false);
+    setOpen(false);
     window.location.href = "/";
   };
 
@@ -60,7 +65,7 @@ export default function Navigation() {
           {/* Left */}
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-3">
-              <img src="/logo/logo.png" alt="logo" className="h-19 w-auto" />
+              <img src="/logo/logo.png" alt="logo" className="h-10 w-auto" />
             </Link>
 
             {/* Desktop menu */}
@@ -101,15 +106,13 @@ export default function Navigation() {
                   )}
 
                   <div className="hidden sm:flex flex-col items-start leading-tight mr-1">
-                    {/* ✅ กันชื่อตกบรรทัด */}
                     <span className={`text-blue-900 text-sm font-semibold truncate max-w-[160px] ${NO_WRAP}`}>
                       {user.firstName} {user.lastName}
                     </span>
                     <span className={`text-xs text-slate-500 -mt-0.5 ${NO_WRAP}`}>บัญชีของฉัน</span>
                   </div>
 
-                  <svg width="18" height="18" viewBox="0 0 24 24"
-                       className={`text-slate-500 transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" className={`text-slate-500 transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`}>
                     <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
                   </svg>
                 </button>
@@ -190,20 +193,32 @@ export default function Navigation() {
         {/* Mobile menu panel */}
         <div className={`md:hidden transition-all duration-300 overflow-hidden ${open ? "max-h-96 opacity-100" : "max-h-0 opacity-0"}`}>
           <div className="pb-4 flex flex-col gap-2">
-            <Link href="/" onClick={() => setOpen(false)}
-              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+            <Link
+              href="/"
+              onClick={() => setOpen(false)}
+              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+            >
               หน้าแรก
             </Link>
-            <Link href="/found" onClick={() => setOpen(false)}
-              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+            <Link
+              href="/found"
+              onClick={() => setOpen(false)}
+              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+            >
               แจ้งพบของ
             </Link>
-            <Link href="/lost" onClick={() => setOpen(false)}
-              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+            <Link
+              href="/lost"
+              onClick={() => setOpen(false)}
+              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+            >
               ตรวจสอบของหาย
             </Link>
-            <Link href="/messages" onClick={() => setOpen(false)}
-              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+            <Link
+              href="/messages"
+              onClick={() => setOpen(false)}
+              className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+            >
               การพูดคุย
             </Link>
 
@@ -213,9 +228,17 @@ export default function Navigation() {
             ) : user ? (
               <>
                 <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-200 p-3">
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white flex items-center justify-center ring-2 ring-blue-200 text-sm font-bold">
-                    {initials(user.firstName, user.lastName)}
-                  </div>
+                  {user.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt="avatar"
+                      className="h-10 w-10 rounded-full object-cover ring-2 ring-blue-200"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white flex items-center justify-center ring-2 ring-blue-200 text-sm font-bold">
+                      {initials(user.firstName, user.lastName)}
+                    </div>
+                  )}
                   <div className="min-w-0">
                     <div className={`text-sm font-semibold text-blue-900 truncate ${NO_WRAP}`}>
                       {user.firstName} {user.lastName}
