@@ -8,7 +8,7 @@ const SECRET = new TextEncoder().encode(
 );
 
 async function hasValidToken(req) {
-  const token = req.cookies.get(TOKEN_NAME)?.value; // sync OK in middleware
+  const token = req.cookies.get(TOKEN_NAME)?.value;
   if (!token) return false;
   try {
     await jwtVerify(token, SECRET);
@@ -24,8 +24,12 @@ export async function middleware(req) {
   // ห้ามเข้าถ้ามี token แล้ว
   const guestOnly = ["/signin", "/signup"];
 
-  // ต้องมี token ถึงจะเข้าได้
-  const authOnly = [/^\/found(\/.*)?$/, /^\/profile(\/.*)?$/];
+  // ต้องมี token ถึงจะเข้าได้ (เพิ่ม /messages)
+  const authOnly = [
+    /^\/found(\/.*)?$/,
+    /^\/profile(\/.*)?$/,
+    /^\/messages(\/.*)?$/, // ← เพิ่มตรงนี้
+  ];
 
   const isGuestOnly = guestOnly.includes(pathname);
   const needsAuth = authOnly.some((r) =>
@@ -53,5 +57,6 @@ export async function middleware(req) {
 }
 
 export const config = {
-  matcher: ["/signin", "/signup", "/found/:path*", "/profile/:path*"],
+  // เพิ่ม matcher สำหรับ /messages ด้วย
+  matcher: ["/signin", "/signup", "/found/:path*", "/profile/:path*", "/messages/:path*"],
 };

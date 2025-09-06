@@ -7,9 +7,48 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 
 /** อีโมจิยอดฮิต (เพิ่มจากของเดิม + จัดหมวด) */
-const EMOJI_SMILEYS = ["😀","😁","😂","🤣","😊","😍","😘","🙂","🤔","😅","😎","😇","🥳","🤩","😴","😭","😡","😤","🤯"];
-const EMOJI_HANDS   = ["👍","👎","🙏","👏","🙌","👌","🤝","✌️","👋","🤏","🤘","☝️","✊","🤚","👉","👈","👇","👆"];
-const EMOJI_MISC    = ["🔥","❤️","💙","💚","💛","💜","🖤","🤍","✨","🎉"];
+const EMOJI_SMILEYS = [
+  "😀",
+  "😁",
+  "😂",
+  "🤣",
+  "😊",
+  "😍",
+  "😘",
+  "🙂",
+  "🤔",
+  "😅",
+  "😎",
+  "😇",
+  "🥳",
+  "🤩",
+  "😴",
+  "😭",
+  "😡",
+  "😤",
+  "🤯",
+];
+const EMOJI_HANDS = [
+  "👍",
+  "👎",
+  "🙏",
+  "👏",
+  "🙌",
+  "👌",
+  "🤝",
+  "✌️",
+  "👋",
+  "🤏",
+  "🤘",
+  "☝️",
+  "✊",
+  "🤚",
+  "👉",
+  "👈",
+  "👇",
+  "👆",
+];
+const EMOJI_MISC = ["🔥", "❤️", "💙", "💚", "💛", "💜", "🖤", "🤍", "✨", "🎉"];
 const EMOJI_ALL = [...EMOJI_SMILEYS, ...EMOJI_HANDS, ...EMOJI_MISC];
 
 // ===== ตั้งค่าความถี่ Poll แบบ Adaptive =====
@@ -20,7 +59,7 @@ const JITTER = 200; // กระจายโหลดให้ไม่ยิง
 const normalizeText = (t = "") => t.replace(/\s+/g, " ").trim();
 
 /** นับรูปใน message */
-const attachCount = (m) => (m?.attachments?.length ?? m?.images?.length ?? 0);
+const attachCount = (m) => m?.attachments?.length ?? m?.images?.length ?? 0;
 
 /** ลายเซ็นข้อความ (ตัวล็อก) */
 const signatureOf = (m) =>
@@ -29,7 +68,8 @@ const signatureOf = (m) =>
 /** รวมข้อความกันซ้ำพื้นฐาน (กัน Poll ดึงมาแทรกซ้ำ) */
 function mergeMessagesUnique(prev = [], incoming = []) {
   if (!incoming.length) return prev;
-  const keyOf = (m) => m?.id ?? `${m?.createdAt ?? ""}|${m?.senderId ?? ""}|${m?.text ?? ""}`;
+  const keyOf = (m) =>
+    m?.id ?? `${m?.createdAt ?? ""}|${m?.senderId ?? ""}|${m?.text ?? ""}`;
   const seen = new Set(prev.map(keyOf));
   const add = incoming.filter((m) => !seen.has(keyOf(m)));
   if (!add.length) return prev;
@@ -53,8 +93,15 @@ async function compressImages(files, { maxSide = 1600, quality = 0.8 } = {}) {
   const results = [];
   for (const f of files) {
     const dataUrl = await fileToDataURL(f);
-    const { blob, width, height } = await resizeDataURL(dataUrl, { maxSide, quality });
-    const file = new File([blob], `img-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`, { type: blob.type || "image/jpeg" });
+    const { blob, width, height } = await resizeDataURL(dataUrl, {
+      maxSide,
+      quality,
+    });
+    const file = new File(
+      [blob],
+      `img-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`,
+      { type: blob.type || "image/jpeg" }
+    );
     const url = URL.createObjectURL(blob);
     results.push({ file, url, width, height });
   }
@@ -75,16 +122,27 @@ function resizeDataURL(dataUrl, { maxSide = 1600, quality = 0.8 } = {}) {
     const img = new Image();
     img.onload = () => {
       let { width, height } = img;
-      let tw = width, th = height;
+      let tw = width,
+        th = height;
       if (Math.max(width, height) > maxSide) {
-        if (width > height) { tw = maxSide; th = Math.round(height * maxSide / width); }
-        else { th = maxSide; tw = Math.round(width * maxSide / height); }
+        if (width > height) {
+          tw = maxSide;
+          th = Math.round((height * maxSide) / width);
+        } else {
+          th = maxSide;
+          tw = Math.round((width * maxSide) / height);
+        }
       }
       const canvas = document.createElement("canvas");
-      canvas.width = tw; canvas.height = th;
+      canvas.width = tw;
+      canvas.height = th;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, tw, th);
-      canvas.toBlob((b) => resolve({ blob: b || new Blob(), width: tw, height: th }), "image/jpeg", quality);
+      canvas.toBlob(
+        (b) => resolve({ blob: b || new Blob(), width: tw, height: th }),
+        "image/jpeg",
+        quality
+      );
     };
     img.onerror = () => resolve({ blob: new Blob(), width: 0, height: 0 });
     img.src = dataUrl;
@@ -99,8 +157,8 @@ export default function ConversationPage() {
   const [messages, setMessages] = useState([]);
   const [err, setErr] = useState("");
   const [text, setText] = useState("");
-  const [files, setFiles] = useState([]);        // (compressed) File[]
-  const [previews, setPreviews] = useState([]);  // objectURL ของ compressed
+  const [files, setFiles] = useState([]); // (compressed) File[]
+  const [previews, setPreviews] = useState([]); // objectURL ของ compressed
   const [compressing, setCompressing] = useState(false);
   const [meId, setMeId] = useState(null);
 
@@ -111,11 +169,11 @@ export default function ConversationPage() {
 
   // ===== optimistic stores
   const tempStoreRef = useRef(new Map()); // tempId -> { text, files }
-  const tempUrlsRef = useRef(new Map());  // tempId -> [objectURLs]
+  const tempUrlsRef = useRef(new Map()); // tempId -> [objectURLs]
 
   // ===== lock: ชุดลายเซ็นที่กำลังส่งอยู่ (มี temp แสดงอยู่)
-  const pendingSigRef = useRef(new Set());     // Set<string>
-  const tempIdBySigRef = useRef(new Map());    // sig -> tempId
+  const pendingSigRef = useRef(new Set()); // Set<string>
+  const tempIdBySigRef = useRef(new Map()); // sig -> tempId
 
   // ===== polling / SSE
   const lastTsRef = useRef(null);
@@ -129,12 +187,14 @@ export default function ConversationPage() {
   // ===== สมาชิกเป็น map
   const memberById = useMemo(() => {
     const m = new Map();
-    if (conv?.members) conv.members.forEach(u => m.set(u.id, u));
+    if (conv?.members) conv.members.forEach((u) => m.set(u.id, u));
     return m;
   }, [conv]);
 
-  const getUserOfMessage = (m) => m?.sender || memberById.get(m?.senderId) || null;
-  const getName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "ผู้ใช้";
+  const getUserOfMessage = (m) =>
+    m?.sender || memberById.get(m?.senderId) || null;
+  const getName = (u) =>
+    [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "ผู้ใช้";
 
   const scrollToBottom = (smooth = true) => {
     const el = scrollerRef.current;
@@ -152,14 +212,22 @@ export default function ConversationPage() {
   };
 
   const ensureVisible = (fromMe = false) => {
-    if (fromMe || isNearBottom()) requestAnimationFrame(() => scrollToBottom(true));
+    if (fromMe || isNearBottom())
+      requestAnimationFrame(() => scrollToBottom(true));
   };
 
   const nextDelay = () => {
-    const visible = typeof document !== "undefined" ? document.visibilityState === "visible" : true;
+    const visible =
+      typeof document !== "undefined"
+        ? document.visibilityState === "visible"
+        : true;
     const typing = !!text.trim();
     const nearBottom = isNearBottom();
-    const base = !visible ? POLL_MS.hidden : (typing || nearBottom ? POLL_MS.active : POLL_MS.idle);
+    const base = !visible
+      ? POLL_MS.hidden
+      : typing || nearBottom
+      ? POLL_MS.active
+      : POLL_MS.idle;
     return base + Math.floor(Math.random() * JITTER);
   };
 
@@ -173,10 +241,16 @@ export default function ConversationPage() {
       if (readInflightRef.current) return;
       readInflightRef.current = true;
       try {
-        await fetch(`/api/messages/${id}/read`, { method: "POST", credentials: "include" });
+        await fetch(`/api/messages/${id}/read`, {
+          method: "POST",
+          credentials: "include",
+        });
         lastReadAtRef.current = Date.now();
-      } catch { /* noop */ }
-      finally { readInflightRef.current = false; }
+      } catch {
+        /* noop */
+      } finally {
+        readInflightRef.current = false;
+      }
     }, 120);
   };
 
@@ -185,13 +259,18 @@ export default function ConversationPage() {
     setLoading(true);
     setErr("");
     try {
-      const res = await fetch(`/api/messages/${id}`, { cache: "no-store", credentials: "include" });
-      const data = await res.json().catch(()=>({}));
+      const res = await fetch(`/api/messages/${id}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "โหลดห้องสนทนาไม่สำเร็จ");
       setConv(data.conversation);
       setMeId(data.meId || null);
       setMessages(data.messages || []);
-      const last = (data.messages || [])[Math.max(0, (data.messages || []).length - 1)];
+      const last = (data.messages || [])[
+        Math.max(0, (data.messages || []).length - 1)
+      ];
       lastTsRef.current = last?.createdAt || null;
       lastEventRef.current = Date.now();
       requestAnimationFrame(() => {
@@ -204,22 +283,24 @@ export default function ConversationPage() {
       setLoading(false);
     }
   };
-  useEffect(() => { if (id) load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => {
+    if (id) load(); /* eslint-disable-next-line */
+  }, [id]);
 
   // ===== helper: แทนที่ temp ตามลายเซ็น
   const replaceOptimisticBySignature = (realMsg) => {
     const sig = signatureOf(realMsg);
     if (!pendingSigRef.current.has(sig)) return false;
     const tempId = tempIdBySigRef.current.get(sig);
-    setMessages(prev => {
-      const idx = prev.findIndex(m => m.id === tempId);
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === tempId);
       if (idx === -1) return prev;
       const arr = prev.slice();
       arr[idx] = realMsg;
       return dedupeByIdKeepOrder(arr);
     });
     const urls = tempUrlsRef.current.get(tempId) || [];
-    urls.forEach(u => URL.revokeObjectURL(u));
+    urls.forEach((u) => URL.revokeObjectURL(u));
     tempUrlsRef.current.delete(tempId);
     tempStoreRef.current.delete(tempId);
     pendingSigRef.current.delete(sig);
@@ -230,19 +311,24 @@ export default function ConversationPage() {
   // ===== SSE
   useEffect(() => {
     if (!id) return;
-    const es = new EventSource(`/api/messages/${id}/events`, { withCredentials: true });
+    const es = new EventSource(`/api/messages/${id}/events`, {
+      withCredentials: true,
+    });
     es.onmessage = (ev) => {
       try {
         const payload = JSON.parse(ev.data || "{}");
         const msg = payload?.message;
-        if ((payload?.type === "message" || payload?.type === "message:new") && msg) {
+        if (
+          (payload?.type === "message" || payload?.type === "message:new") &&
+          msg
+        ) {
           if (msg.senderId === meId && replaceOptimisticBySignature(msg)) {
             lastTsRef.current = msg.createdAt;
             lastEventRef.current = Date.now();
             ensureVisible(true);
             return;
           }
-          setMessages(prev => {
+          setMessages((prev) => {
             const next = mergeMessagesUnique(prev, [msg]);
             lastTsRef.current = msg.createdAt;
             return next;
@@ -275,25 +361,33 @@ export default function ConversationPage() {
         return;
       }
 
-      const qs = lastTsRef.current ? `?since=${encodeURIComponent(lastTsRef.current)}` : `?take=1`;
+      const qs = lastTsRef.current
+        ? `?since=${encodeURIComponent(lastTsRef.current)}`
+        : `?take=1`;
       try {
-        const res = await fetch(`/api/messages/${id}${qs}`, { cache: "no-store", credentials: "include" });
+        const res = await fetch(`/api/messages/${id}${qs}`, {
+          cache: "no-store",
+          credentials: "include",
+        });
         const data = await res.json().catch(() => ({}));
         if (res.ok && Array.isArray(data?.messages) && data.messages.length) {
-          setMessages(prev => {
+          setMessages((prev) => {
             let arr = prev;
             let gotMine = false;
             for (const m of data.messages) {
-              if (m.senderId === meId && pendingSigRef.current.has(signatureOf(m))) {
+              if (
+                m.senderId === meId &&
+                pendingSigRef.current.has(signatureOf(m))
+              ) {
                 const sig = signatureOf(m);
                 const tempId = tempIdBySigRef.current.get(sig);
-                const idx = arr.findIndex(x => x.id === tempId);
+                const idx = arr.findIndex((x) => x.id === tempId);
                 if (idx !== -1) {
                   const copy = arr.slice();
                   copy[idx] = m;
                   arr = copy;
                   const urls = tempUrlsRef.current.get(tempId) || [];
-                  urls.forEach(u => URL.revokeObjectURL(u));
+                  urls.forEach((u) => URL.revokeObjectURL(u));
                   tempUrlsRef.current.delete(tempId);
                   tempStoreRef.current.delete(tempId);
                   pendingSigRef.current.delete(sig);
@@ -306,7 +400,10 @@ export default function ConversationPage() {
             const last = data.messages[data.messages.length - 1];
             lastTsRef.current = last?.createdAt || lastTsRef.current;
             // หลังอัปเดต ลองอ่านถ้าอยู่ก้น
-            setTimeout(() => scheduleRead({ force: gotMine ? true : false }), 0);
+            setTimeout(
+              () => scheduleRead({ force: gotMine ? true : false }),
+              0
+            );
             setTimeout(() => ensureVisible(gotMine), 0);
             return merged;
           });
@@ -318,30 +415,40 @@ export default function ConversationPage() {
     };
 
     setTimeout(tick, nextDelay());
-    return () => { stopped = true; };
+    return () => {
+      stopped = true;
+    };
   }, [id, text, meId]);
 
   // ===== อัพโหลด preview (บีบอัดก่อน)
   const onPickFiles = async (e) => {
-    const arr = Array.from(e.target.files || []).filter(f => f.type.startsWith("image/"));
+    const arr = Array.from(e.target.files || []).filter((f) =>
+      f.type.startsWith("image/")
+    );
     if (!arr.length) return;
     setCompressing(true);
     try {
-      const compressed = await compressImages(arr, { maxSide: 1600, quality: 0.82 });
-      setFiles(prev => [...prev, ...compressed.map(c => c.file)]);
-      setPreviews(prev => [...prev, ...compressed.map(c => c.url)]);
+      const compressed = await compressImages(arr, {
+        maxSide: 1600,
+        quality: 0.82,
+      });
+      setFiles((prev) => [...prev, ...compressed.map((c) => c.file)]);
+      setPreviews((prev) => [...prev, ...compressed.map((c) => c.url)]);
     } finally {
       setCompressing(false);
     }
   };
   const removePreview = (i) => {
-    setFiles(p => p.filter((_, idx) => idx !== i));
-    setPreviews(p => {
+    setFiles((p) => p.filter((_, idx) => idx !== i));
+    setPreviews((p) => {
       URL.revokeObjectURL(p[i]);
       return p.filter((_, idx) => idx !== i);
     });
   };
-  useEffect(() => () => previews.forEach(u => URL.revokeObjectURL(u)), [previews]);
+  useEffect(
+    () => () => previews.forEach((u) => URL.revokeObjectURL(u)),
+    [previews]
+  );
 
   // ===== ส่งข้อความ (Optimistic + Signature lock)
   const send = async () => {
@@ -351,7 +458,9 @@ export default function ConversationPage() {
 
     sendingRef.current = true;
 
-    const tempId = `temp-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+    const tempId = `temp-${
+      crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)
+    }`;
     const tempUrls = previews.slice(); // ใช้ preview ที่บีบแล้ว
     const tempMsg = {
       id: tempId,
@@ -367,10 +476,13 @@ export default function ConversationPage() {
     pendingSigRef.current.add(tempSig);
     tempIdBySigRef.current.set(tempSig, tempId);
 
-    tempStoreRef.current.set(tempId, { text: payloadText, files: files.slice() });
+    tempStoreRef.current.set(tempId, {
+      text: payloadText,
+      files: files.slice(),
+    });
     tempUrlsRef.current.set(tempId, tempUrls.slice());
 
-    setMessages(prev => mergeMessagesUnique(prev, [tempMsg]));
+    setMessages((prev) => mergeMessagesUnique(prev, [tempMsg]));
     ensureVisible(true); // เราส่งเอง → เลื่อนเสมอ
 
     // เคลียร์อินพุตทันที
@@ -382,26 +494,33 @@ export default function ConversationPage() {
     try {
       const fd = new FormData();
       if (payloadText) fd.append("text", payloadText);
-      (tempStoreRef.current.get(tempId)?.files || []).forEach(f => fd.append("attachments", f));
+      (tempStoreRef.current.get(tempId)?.files || []).forEach((f) =>
+        fd.append("attachments", f)
+      );
 
-      const res = await fetch(`/api/messages/${id}`, { method: "POST", body: fd, credentials: "include" });
-      const data = await res.json().catch(()=>({}));
-      if (!res.ok || data?.success === false) throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
+      const res = await fetch(`/api/messages/${id}`, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false)
+        throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
 
       const real = data.message;
 
       if (!pendingSigRef.current.has(tempSig)) {
-        setMessages(prev => dedupeByIdKeepOrder(prev));
+        setMessages((prev) => dedupeByIdKeepOrder(prev));
       } else {
-        setMessages(prev => {
-          const idx = prev.findIndex(m => m.id === tempId);
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === tempId);
           if (idx === -1) return mergeMessagesUnique(prev, [real]);
           const arr = prev.slice();
           arr[idx] = real;
           return dedupeByIdKeepOrder(arr);
         });
         const urls = tempUrlsRef.current.get(tempId) || [];
-        urls.forEach(u => URL.revokeObjectURL(u));
+        urls.forEach((u) => URL.revokeObjectURL(u));
         tempUrlsRef.current.delete(tempId);
         tempStoreRef.current.delete(tempId);
       }
@@ -414,7 +533,9 @@ export default function ConversationPage() {
       ensureVisible(true);
       scheduleRead({ force: false }); // หลังส่งเสร็จ เราอยู่ก้น → เคลียร์ unread ของเราเองด้วย
     } catch (e) {
-      setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, __failed: true } : m))
+      );
       pendingSigRef.current.delete(tempSig);
       tempIdBySigRef.current.delete(tempSig);
     } finally {
@@ -428,9 +549,16 @@ export default function ConversationPage() {
     if (!payload) return;
 
     sendingRef.current = true;
-    setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: false } : m)));
+    setMessages((prev) =>
+      prev.map((m) => (m.id === tempId ? { ...m, __failed: false } : m))
+    );
 
-    const tempMsgLike = { id: tempId, senderId: meId, text: payload.text, attachments: (tempUrlsRef.current.get(tempId) || []) };
+    const tempMsgLike = {
+      id: tempId,
+      senderId: meId,
+      text: payload.text,
+      attachments: tempUrlsRef.current.get(tempId) || [],
+    };
     const tempSig = signatureOf(tempMsgLike);
     pendingSigRef.current.add(tempSig);
     tempIdBySigRef.current.set(tempSig, tempId);
@@ -438,22 +566,34 @@ export default function ConversationPage() {
     try {
       const fd = new FormData();
       if (payload.text) fd.append("text", payload.text);
-      (payload.files || []).forEach(f => fd.append("attachments", f));
+      (payload.files || []).forEach((f) => fd.append("attachments", f));
 
-      const res = await fetch(`/api/messages/${id}`, { method: "POST", body: fd, credentials: "include" });
-      const data = await res.json().catch(()=>({}));
-      if (!res.ok || data?.success === false) throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
+      const res = await fetch(`/api/messages/${id}`, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false)
+        throw new Error(data?.message || "ส่งข้อความไม่สำเร็จ");
 
       const real = data.message;
 
       if (pendingSigRef.current.has(tempSig)) {
-        setMessages(prev => {
-          const idx = prev.findIndex(m => m.id === tempId);
-          const arr = idx === -1 ? prev.slice() : (() => { const a=prev.slice(); a[idx]=real; return a; })();
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === tempId);
+          const arr =
+            idx === -1
+              ? prev.slice()
+              : (() => {
+                  const a = prev.slice();
+                  a[idx] = real;
+                  return a;
+                })();
           return dedupeByIdKeepOrder(arr);
         });
         const urls = tempUrlsRef.current.get(tempId) || [];
-        urls.forEach(u => URL.revokeObjectURL(u));
+        urls.forEach((u) => URL.revokeObjectURL(u));
         tempUrlsRef.current.delete(tempId);
         tempStoreRef.current.delete(tempId);
       }
@@ -465,7 +605,9 @@ export default function ConversationPage() {
       ensureVisible(true);
       scheduleRead({ force: false });
     } catch (e) {
-      setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, __failed: true } : m))
+      );
       pendingSigRef.current.delete(tempSig);
       tempIdBySigRef.current.delete(tempSig);
     } finally {
@@ -476,9 +618,10 @@ export default function ConversationPage() {
   // เก็บกวาด URL ชั่วคราวเมื่อ unmount
   useEffect(() => {
     return () => {
-      for (const urls of tempUrlsRef.current.values()) urls.forEach((u) => URL.revokeObjectURL(u));
+      for (const urls of tempUrlsRef.current.values())
+        urls.forEach((u) => URL.revokeObjectURL(u));
       tempUrlsRef.current.clear();
-      previews.forEach(u => URL.revokeObjectURL(u));
+      previews.forEach((u) => URL.revokeObjectURL(u));
     };
   }, []); // eslint-disable-line
 
@@ -489,7 +632,8 @@ export default function ConversationPage() {
     if (!root || !target) return;
     const io = new IntersectionObserver(
       (entries) => {
-        for (const e of entries) if (e.isIntersecting) scheduleRead({ force: true });
+        for (const e of entries)
+          if (e.isIntersecting) scheduleRead({ force: true });
       },
       { root, threshold: 0.1 }
     );
@@ -500,7 +644,10 @@ export default function ConversationPage() {
   // เมื่อหน้าต่างโฟกัส/แท็บ visible → ลอง read อีกที
   useEffect(() => {
     const onFocus = () => scheduleRead({ force: false });
-    const onVis = () => { if (document.visibilityState === "visible") scheduleRead({ force: false }); };
+    const onVis = () => {
+      if (document.visibilityState === "visible")
+        scheduleRead({ force: false });
+    };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -521,8 +668,15 @@ export default function ConversationPage() {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12 text-center">
         <h1 className="text-xl font-bold text-blue-900 mb-2">ไม่พบห้องสนทนา</h1>
-        <p className="text-slate-600 mb-6">{err || "ไม่มีสิทธิ์เข้าถึง / ห้องอาจถูกลบ"}</p>
-        <Link href="/messages" className="inline-flex items-center rounded-full px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-900 to-blue-700">← กลับไปกล่องข้อความ</Link>
+        <p className="text-slate-600 mb-6">
+          {err || "ไม่มีสิทธิ์เข้าถึง / ห้องอาจถูกลบ"}
+        </p>
+        <Link
+          href="/messages"
+          className="inline-flex items-center rounded-full px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-900 to-blue-700"
+        >
+          ← กลับไปกล่องข้อความ
+        </Link>
       </div>
     );
   }
@@ -534,7 +688,12 @@ export default function ConversationPage() {
       {/* header */}
       <section className="relative bg-gradient-to-r from-blue-900 to-blue-700">
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3">
-          <Link href="/messages" className="rounded-full px-3 py-1.5 text-sm font-medium text-white/90 hover:bg-white/10 border border-white/30">← ทั้งหมด</Link>
+          <Link
+            href="/messages"
+            className="rounded-full px-3 py-1.5 text-sm font-medium text-white/90 hover:bg-white/10 border border-white/30"
+          >
+            ← ทั้งหมด
+          </Link>
           <div className="min-w-0">
             <div className="text-blue-100 text-xs">ห้องสนทนา</div>
             <h1 className="text-white font-semibold truncate">
@@ -553,50 +712,92 @@ export default function ConversationPage() {
           onScroll={() => scheduleRead({ force: false })}
         >
           {messages.length === 0 ? (
-            <div className="h-full grid place-items-center text-slate-500">เริ่มต้นการสนทนาได้เลย</div>
+            <div className="h-full grid place-items-center text-slate-500">
+              เริ่มต้นการสนทนาได้เลย
+            </div>
           ) : (
             <div className="space-y-3">
               {messages.map((m, i) => {
                 const mine = !!meId && m.senderId === meId;
                 const u = getUserOfMessage(m);
-                const imgs = (m.attachments?.length ? m.attachments : m.images) || [];
-                const handleImgLoad = () => { ensureVisible(mine); scheduleRead({ force: false }); };
+                const imgs =
+                  (m.attachments?.length ? m.attachments : m.images) || [];
+                const handleImgLoad = () => {
+                  ensureVisible(mine);
+                  scheduleRead({ force: false });
+                };
 
                 return (
-                  <div key={m.id || `${m.createdAt}-${i}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                  <div
+                    key={m.id || `${m.createdAt}-${i}`}
+                    className={`flex ${mine ? "justify-end" : "justify-start"}`}
+                  >
                     {!mine && (
                       <div className="mr-2 shrink-0 self-end">
                         <AvatarCircle user={u} size={36} />
                       </div>
                     )}
 
-                    <div className={`${mine ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-900"} max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow`}>
+                    <div
+                      className={`${
+                        mine
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-100 text-slate-900"
+                      } max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow`}
+                    >
                       {!mine && isGroup && (
-                        <div className={`mb-0.5 text-[11px] ${mine ? "text-white/80" : "text-slate-500"}`}>
+                        <div
+                          className={`mb-0.5 text-[11px] ${
+                            mine ? "text-white/80" : "text-slate-500"
+                          }`}
+                        >
                           {getName(u)}
                         </div>
                       )}
-                      {!!m.text && <div className="whitespace-pre-wrap break-words">{m.text}</div>}
+                      {!!m.text && (
+                        <div className="whitespace-pre-wrap break-words">
+                          {m.text}
+                        </div>
+                      )}
                       {!!imgs.length && (
                         <div className="mt-1 grid grid-cols-2 gap-2">
                           {imgs.map((src, j) => (
-                            <img key={j} src={src} alt={`img-${j}`} className="rounded-lg object-cover w-full h-32" onLoad={handleImgLoad} />
+                            <img
+                              key={j}
+                              src={src}
+                              alt={`img-${j}`}
+                              className="rounded-lg object-cover w-full h-32"
+                              onLoad={handleImgLoad}
+                            />
                           ))}
                         </div>
                       )}
-                      <div className={`${mine ? "text-white/70" : "text-slate-500"} text-[11px] mt-1`}>
-                        {new Date(m.createdAt).toLocaleString("th-TH", { timeStyle:"short", dateStyle:"short" })}
+                      <div
+                        className={`${
+                          mine ? "text-white/70" : "text-slate-500"
+                        } text-[11px] mt-1`}
+                      >
+                        {new Date(m.createdAt).toLocaleString("th-TH", {
+                          timeStyle: "short",
+                          dateStyle: "short",
+                        })}
                       </div>
 
                       {mine && m.__optimistic && !m.__failed && (
-                        <div className={`${mine ? "text-white/80" : "text-slate-500"} text-[11px] mt-0.5 flex items-center gap-1`}>
+                        <div
+                          className={`${
+                            mine ? "text-white/80" : "text-slate-500"
+                          } text-[11px] mt-0.5 flex items-center gap-1`}
+                        >
                           <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse" />
                           กำลังส่ง…
                         </div>
                       )}
                       {mine && m.__failed && (
                         <div className="text-[11px] mt-1 flex items-center gap-2">
-                          <span className="text-red-500 font-medium">ส่งไม่สำเร็จ</span>
+                          <span className="text-red-500 font-medium">
+                            ส่งไม่สำเร็จ
+                          </span>
                           <button
                             className="px-2 py-0.5 rounded-full border text-xs hover:bg-white/10"
                             onClick={() => resendTemp(m.id)}
@@ -627,9 +828,17 @@ export default function ConversationPage() {
             <div className="mb-3 grid grid-cols-3 sm:grid-cols-6 gap-2">
               {previews.map((src, i) => (
                 <div key={i} className="relative">
-                  <img src={src} alt={`p-${i}`} className="w-full h-24 object-cover rounded-lg border" />
-                  <button className="absolute -top-2 -right-2 bg-white rounded-full border shadow px-1.5 text-xs"
-                          onClick={()=>removePreview(i)}>✕</button>
+                  <img
+                    src={src}
+                    alt={`p-${i}`}
+                    className="w-full h-24 object-cover rounded-lg border"
+                  />
+                  <button
+                    className="absolute -top-2 -right-2 bg-white text-red-500 rounded-full shadow px-1.5 text-xs"
+                    onClick={() => removePreview(i)}
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>
@@ -637,29 +846,46 @@ export default function ConversationPage() {
 
           {compressing && (
             <div className="mb-2 text-xs text-slate-500 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" /> กำลังลดขนาดรูป…
+              <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" />{" "}
+              กำลังลดขนาดรูป…
             </div>
           )}
 
           <div className="flex items-end gap-2">
-            <EmojiPicker onPick={(emo)=>{ setText(t=>t+emo); inputRef.current?.focus(); }} />
+            <EmojiPicker
+              onPick={(emo) => {
+                setText((t) => t + emo);
+                inputRef.current?.focus();
+              }}
+            />
             <textarea
               ref={inputRef}
               value={text}
-              onChange={(e)=>setText(e.target.value)}
+              onChange={(e) => setText(e.target.value)}
               rows={1}
               placeholder="พิมพ์ข้อความ…"
               className="flex-1 text-black resize-none rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-200"
-              onKeyDown={(e)=>{ if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
             />
             <label className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">
               รูป
-              <input type="file" accept="image/*" multiple className="sr-only" onChange={onPickFiles} />
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={onPickFiles}
+              />
             </label>
             <button
               onClick={send}
               className="rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-900 to-blue-700 disabled:opacity-60"
-              disabled={!text.trim() && files.length===0}
+              disabled={!text.trim() && files.length === 0}
             >
               ส่ง
             </button>
@@ -678,15 +904,27 @@ function AvatarCircle({ user, size = 36 }) {
   return url ? (
     <img
       src={url}
-      alt={user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "avatar"}
+      alt={
+        user
+          ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
+          : "avatar"
+      }
       className="rounded-full object-cover border border-slate-200 shadow-sm"
       style={{ width: size, height: size }}
     />
   ) : (
     <div
       className="rounded-full grid place-items-center bg-gradient-to-br from-slate-200 to-slate-300 text-slate-700 border border-slate-200 shadow-sm"
-      style={{ width: size, height: size, fontSize: Math.max(11, Math.floor(size/3)) }}
-      title={user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "ผู้ใช้"}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.max(11, Math.floor(size / 3)),
+      }}
+      title={
+        user
+          ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
+          : "ผู้ใช้"
+      }
     >
       {initials || "?"}
     </div>
@@ -710,7 +948,9 @@ function EmojiPicker({ onPick }) {
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
-    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
     window.addEventListener("keydown", onKey);
@@ -724,11 +964,14 @@ function EmojiPicker({ onPick }) {
   const updatePosition = () => {
     if (!btnRef.current) return;
     const r = btnRef.current.getBoundingClientRect();
-    const width = 300, height = 320, margin = 8;
+    const width = 300,
+      height = 320,
+      margin = 8;
     let left = r.left;
     let top = r.top - height - margin;
     if (top < margin) top = r.bottom + margin;
-    if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+    if (left + width > window.innerWidth - margin)
+      left = window.innerWidth - width - margin;
     if (left < margin) left = margin;
     setPos({ top, left });
   };
@@ -742,14 +985,18 @@ function EmojiPicker({ onPick }) {
     }
   };
 
-  const filtered = (query ? EMOJI_ALL.filter(e => e.includes(query)) : EMOJI_ALL).slice(0, 200);
+  const filtered = (
+    query ? EMOJI_ALL.filter((e) => e.includes(query)) : EMOJI_ALL
+  ).slice(0, 200);
 
   const pick = (e) => {
     onPick(e);
     setOpen(false);
-    const next = [e, ...recent.filter(x => x !== e)].slice(0, 18);
+    const next = [e, ...recent.filter((x) => x !== e)].slice(0, 18);
     setRecent(next);
-    try { localStorage.setItem("emoji_recent", JSON.stringify(next)); } catch {}
+    try {
+      localStorage.setItem("emoji_recent", JSON.stringify(next));
+    } catch {}
   };
 
   return (
@@ -763,38 +1010,59 @@ function EmojiPicker({ onPick }) {
         😊
       </button>
 
-      {open && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-0 z-[100]" onMouseDown={() => setOpen(false)}>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            className="absolute bg-white border border-slate-200 rounded-2xl shadow-2xl p-2 w-[300px]"
-            style={{ top: pos.top, left: pos.left }}
-            onMouseDown={(e)=>e.stopPropagation()}
+            className="fixed inset-0 z-[100]"
+            onMouseDown={() => setOpen(false)}
           >
-            {!!recent.length && !query && (
-              <>
-                <div className="px-2 text-[11px] text-slate-500 mb-1">ใช้บ่อย</div>
-                <div className="grid grid-cols-8 gap-1 px-2 mb-2">
-                  {recent.map((e,i)=>(
-                    <button key={`r-${i}`} className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
-                      onClick={()=>pick(e)} title={e}>{e}</button>
+            <div
+              className="absolute bg-white border border-slate-200 rounded-2xl shadow-2xl p-2 w-[300px]"
+              style={{ top: pos.top, left: pos.left }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {!!recent.length && !query && (
+                <>
+                  <div className="px-2 text-[11px] text-slate-500 mb-1">
+                    ใช้บ่อย
+                  </div>
+                  <div className="grid grid-cols-8 gap-1 px-2 mb-2">
+                    {recent.map((e, i) => (
+                      <button
+                        key={`r-${i}`}
+                        className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
+                        onClick={() => pick(e)}
+                        title={e}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="px-2 text-[11px] text-slate-500 mb-1">
+                {query ? "ผลลัพธ์" : "ทั้งหมด"}
+              </div>
+              <div className="max-h-[220px] overflow-y-auto px-2 pb-2">
+                <div className="grid grid-cols-8 gap-1">
+                  {filtered.map((e, i) => (
+                    <button
+                      key={`a-${i}`}
+                      className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
+                      onClick={() => pick(e)}
+                      title={e}
+                    >
+                      {e}
+                    </button>
                   ))}
                 </div>
-              </>
-            )}
-
-            <div className="px-2 text-[11px] text-slate-500 mb-1">{query ? "ผลลัพธ์" : "ทั้งหมด"}</div>
-            <div className="max-h-[220px] overflow-y-auto px-2 pb-2">
-              <div className="grid grid-cols-8 gap-1">
-                {filtered.map((e,i)=>(
-                  <button key={`a-${i}`} className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
-                    onClick={()=>pick(e)} title={e}>{e}</button>
-                ))}
               </div>
             </div>
-          </div>
-        </div>,
-        document.body
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 }

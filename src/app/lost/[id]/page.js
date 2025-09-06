@@ -13,6 +13,23 @@ export default function LostDetailPage() {
   const [item, setItem] = useState(null);
   const [err, setErr] = useState("");
 
+  // 👇 โหลดข้อมูลผู้ใช้ปัจจุบัน เพื่อตรวจว่าเป็นของตัวเองหรือไม่
+  const [me, setMe] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
+        if (!alive) return;
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setMe(data?.user || null);
+        }
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, []);
+
   const fetchDetail = async () => {
     setLoading(true);
     setErr("");
@@ -62,10 +79,13 @@ export default function LostDetailPage() {
 
   const statusResolved = String(item.status).toUpperCase() === "RESOLVED";
   const reporterName =
-    `${item?.createdBy?.firstName || ""} ${
-      item?.createdBy?.lastName || ""
-    }`.trim() || "ผู้แจ้งไม่ระบุ";
+    `${item?.createdBy?.firstName || ""} ${item?.createdBy?.lastName || ""}`.trim() || "ผู้แจ้งไม่ระบุ";
   const cover = item.images?.[0];
+
+  // 👇 เช็คว่าเป็นของฉันหรือไม่
+  const ownerIds = [item.createdById, item.createdBy?.id, item.ownerId, item.owner?.id].filter(Boolean);
+  const isMine = !!me?.id && ownerIds.some((oid) => String(oid) === String(me.id));
+  const chatTo = item.createdById ?? item.createdBy?.id ?? "";
 
   return (
     <div className="min-h-[80vh] bg-gradient-to-b from-blue-100/40 to-white">
@@ -89,23 +109,22 @@ export default function LostDetailPage() {
               <span
                 className={[
                   "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold",
-                  statusResolved
-                    ? "bg-green-500/90 text-white"
-                    : "bg-amber-500/90 text-white",
+                  statusResolved ? "bg-green-500/90 text-white" : "bg-amber-500/90 text-white",
                 ].join(" ")}
               >
                 {statusResolved ? "ส่งคืนแล้ว" : "รอเจ้าของรับคืน"}
               </span>
-              {/* ปุ่มพูดคุย (public) */}
-              <Link
-                href={`/messages/new?to=${
-                  item.createdById ?? item.createdBy?.id ?? ""
-                }&item=${item.id}`}
-                className="rounded-full px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/20 shadow-sm transition border border-white/30 backdrop-blur"
-                title="พูดคุยกับผู้แจ้ง"
-              >
-                พูดคุย 💬
-              </Link>
+
+              {/* 👇 ปุ่มพูดคุย (ซ่อนเมื่อเป็นของฉัน) */}
+              {!isMine && chatTo && (
+                <Link
+                  href={`/messages/new?to=${chatTo}&item=${item.id}`}
+                  className="rounded-full px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/20 shadow-sm transition border border-white/30 backdrop-blur"
+                  title="พูดคุยกับผู้แจ้ง"
+                >
+                  พูดคุย 💬
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -187,29 +206,17 @@ export default function LostDetailPage() {
                 </div>
               )}
               <div className="min-w-0">
-                <div className="font-medium text-blue-900 truncate">
-                  {reporterName}
-                </div>
+                <div className="font-medium text-blue-900 truncate">{reporterName}</div>
                 <div className="text-xs text-slate-500">
                   สถานะ:{" "}
-                  <span
-                    className={
-                      statusResolved ? "text-green-700" : "text-amber-700"
-                    }
-                  >
+                  <span className={statusResolved ? "text-green-700" : "text-amber-700"}>
                     {statusResolved ? "ส่งคืนแล้ว" : "รอเจ้าของรับคืน"}
                   </span>
                 </div>
-                {" "}
                 <div className="mt-1 text-xs text-slate-500 truncate">
                   อีเมล:{" "}
                   {item.createdBy?.email ? (
-                    <a
-                      href={`mailto:${item.createdBy.email}`}
-                      className=""
-                    >
-                      {item.createdBy.email}
-                    </a>
+                    <a href={`mailto:${item.createdBy.email}`}>{item.createdBy.email}</a>
                   ) : (
                     "-"
                   )}
@@ -217,12 +224,7 @@ export default function LostDetailPage() {
                 <div className="text-xs text-slate-500">
                   โทร:{" "}
                   {item.createdBy?.phone ? (
-                    <a
-                      href={`tel:${item.createdBy.phone}`}
-                      className=""
-                    >
-                      {item.createdBy.phone}
-                    </a>
+                    <a href={`tel:${item.createdBy.phone}`}>{item.createdBy.phone}</a>
                   ) : (
                     "-"
                   )}
@@ -230,16 +232,17 @@ export default function LostDetailPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex gap-2">
-              <Link
-                href={`/messages/new?to=${
-                  item.createdById ?? item.createdBy?.id ?? ""
-                }&item=${item.id}`}
-                className="rounded-full px-4 py-2 text-sm font-semibold text-blue-900 border border-blue-900/30 hover:bg-blue-50"
-              >
-                พูดคุยกับผู้แจ้ง 💬
-              </Link>
-            </div>
+            {/* 👇 ซ่อนปุ่มพูดคุยถ้าเป็นของฉัน */}
+            {!isMine && chatTo && (
+              <div className="mt-4 flex gap-2">
+                <Link
+                  href={`/messages/new?to=${chatTo}&item=${item.id}`}
+                  className="rounded-full px-4 py-2 text-sm font-semibold text-blue-900 border border-blue-900/30 hover:bg-blue-50"
+                >
+                  พูดคุยกับผู้แจ้ง 💬
+                </Link>
+              </div>
+            )}
 
             <div className="mt-4 text-xs text-slate-500">
               * หน้านี้เป็นข้อมูลสาธารณะ
