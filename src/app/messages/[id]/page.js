@@ -107,6 +107,7 @@ export default function ConversationPage() {
   const sendingRef = useRef(false);
   const inputRef = useRef(null);
   const scrollerRef = useRef(null);
+  const bottomSentinelRef = useRef(null);
 
   // ===== optimistic stores
   const tempStoreRef = useRef(new Map()); // tempId -> { text, files }
@@ -119,6 +120,11 @@ export default function ConversationPage() {
   // ===== polling / SSE
   const lastTsRef = useRef(null);
   const lastEventRef = useRef(Date.now());
+
+  // ===== READ: debounce/throttle
+  const readTimerRef = useRef(null);
+  const readInflightRef = useRef(false);
+  const lastReadAtRef = useRef(0);
 
   // ===== สมาชิกเป็น map
   const memberById = useMemo(() => {
@@ -141,7 +147,7 @@ export default function ConversationPage() {
   const isNearBottom = () => {
     const el = scrollerRef.current;
     if (!el) return false;
-    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const gap = el.scrollHeight - el.clientHeight - el.scrollTop;
     return gap < 120;
   };
 
@@ -155,6 +161,23 @@ export default function ConversationPage() {
     const nearBottom = isNearBottom();
     const base = !visible ? POLL_MS.hidden : (typing || nearBottom ? POLL_MS.active : POLL_MS.idle);
     return base + Math.floor(Math.random() * JITTER);
+  };
+
+  // ===== ยิง read แบบสุภาพ
+  const scheduleRead = (opts = { force: false }) => {
+    if (!id || !meId) return;
+    if (!opts.force && !isNearBottom()) return;
+    if (Date.now() - lastReadAtRef.current < 1000) return; // throttle ~1s
+    clearTimeout(readTimerRef.current);
+    readTimerRef.current = setTimeout(async () => {
+      if (readInflightRef.current) return;
+      readInflightRef.current = true;
+      try {
+        await fetch(`/api/messages/${id}/read`, { method: "POST", credentials: "include" });
+        lastReadAtRef.current = Date.now();
+      } catch { /* noop */ }
+      finally { readInflightRef.current = false; }
+    }, 120);
   };
 
   // ===== โหลดเริ่มต้น
@@ -171,7 +194,10 @@ export default function ConversationPage() {
       const last = (data.messages || [])[Math.max(0, (data.messages || []).length - 1)];
       lastTsRef.current = last?.createdAt || null;
       lastEventRef.current = Date.now();
-      requestAnimationFrame(() => scrollToBottom(false));
+      requestAnimationFrame(() => {
+        scrollToBottom(false);
+        scheduleRead({ force: false });
+      });
     } catch (e) {
       setErr(e.message || "เกิดข้อผิดพลาด");
     } finally {
@@ -180,19 +206,18 @@ export default function ConversationPage() {
   };
   useEffect(() => { if (id) load(); /* eslint-disable-next-line */ }, [id]);
 
-  // ===== helper: แทนที่ temp ตามลายเซ็น (ไม่ให้มี 2 อันพร้อมกัน)
+  // ===== helper: แทนที่ temp ตามลายเซ็น
   const replaceOptimisticBySignature = (realMsg) => {
     const sig = signatureOf(realMsg);
     if (!pendingSigRef.current.has(sig)) return false;
     const tempId = tempIdBySigRef.current.get(sig);
     setMessages(prev => {
       const idx = prev.findIndex(m => m.id === tempId);
-      if (idx === -1) return prev; // ไม่เจอ temp ก็อย่า append — รอ POST แทน
+      if (idx === -1) return prev;
       const arr = prev.slice();
-      arr[idx] = realMsg; // แทนที่ตรงตำแหน่งเดิม → ไม่เกิด flash ซ้ำ
+      arr[idx] = realMsg;
       return dedupeByIdKeepOrder(arr);
     });
-    // เก็บกวาด temp resources
     const urls = tempUrlsRef.current.get(tempId) || [];
     urls.forEach(u => URL.revokeObjectURL(u));
     tempUrlsRef.current.delete(tempId);
@@ -211,7 +236,6 @@ export default function ConversationPage() {
         const payload = JSON.parse(ev.data || "{}");
         const msg = payload?.message;
         if ((payload?.type === "message" || payload?.type === "message:new") && msg) {
-          // ถ้าเป็นของเราและลายเซ็นตรงกับที่กำลังส่ง → แทนที่ temp (ไม่ append)
           if (msg.senderId === meId && replaceOptimisticBySignature(msg)) {
             lastTsRef.current = msg.createdAt;
             lastEventRef.current = Date.now();
@@ -224,6 +248,8 @@ export default function ConversationPage() {
             return next;
           });
           lastEventRef.current = Date.now();
+          // ถ้ามาจากฝั่งตรงข้ามและเราอยู่ก้น → read
+          scheduleRead({ force: false });
           ensureVisible(msg.senderId === meId);
         }
       } catch {}
@@ -232,7 +258,7 @@ export default function ConversationPage() {
     return () => es.close();
   }, [id, meId]);
 
-  // ===== Polling fallback (ใช้ signature เหมือน SSE)
+  // ===== Polling fallback
   useEffect(() => {
     if (!id) return;
     let stopped = false;
@@ -255,7 +281,6 @@ export default function ConversationPage() {
         const data = await res.json().catch(() => ({}));
         if (res.ok && Array.isArray(data?.messages) && data.messages.length) {
           setMessages(prev => {
-            // ลองแทนที่ temp ถ้าข้อความจากตัวเองตรงลายเซ็น
             let arr = prev;
             let gotMine = false;
             for (const m of data.messages) {
@@ -267,7 +292,6 @@ export default function ConversationPage() {
                   const copy = arr.slice();
                   copy[idx] = m;
                   arr = copy;
-                  // cleanup lock ของอันนี้ไว้ก่อน
                   const urls = tempUrlsRef.current.get(tempId) || [];
                   urls.forEach(u => URL.revokeObjectURL(u));
                   tempUrlsRef.current.delete(tempId);
@@ -281,7 +305,8 @@ export default function ConversationPage() {
             const merged = mergeMessagesUnique(arr, data.messages);
             const last = data.messages[data.messages.length - 1];
             lastTsRef.current = last?.createdAt || lastTsRef.current;
-            // เลื่อนเฉพาะเมื่อใกล้ก้นหรือเป็นของเรา
+            // หลังอัปเดต ลองอ่านถ้าอยู่ก้น
+            setTimeout(() => scheduleRead({ force: gotMine ? true : false }), 0);
             setTimeout(() => ensureVisible(gotMine), 0);
             return merged;
           });
@@ -296,7 +321,7 @@ export default function ConversationPage() {
     return () => { stopped = true; };
   }, [id, text, meId]);
 
-  // ===== อัพโหลด preview (บีบอัดก่อน เพื่อส่งไวขึ้น + ใช้ preview จากไฟล์ที่บีบแล้ว)
+  // ===== อัพโหลด preview (บีบอัดก่อน)
   const onPickFiles = async (e) => {
     const arr = Array.from(e.target.files || []).filter(f => f.type.startsWith("image/"));
     if (!arr.length) return;
@@ -338,7 +363,6 @@ export default function ConversationPage() {
       __failed: false,
     };
 
-    // ลงทะเบียนลายเซ็นล็อก
     const tempSig = signatureOf(tempMsg);
     pendingSigRef.current.add(tempSig);
     tempIdBySigRef.current.set(tempSig, tempId);
@@ -366,31 +390,29 @@ export default function ConversationPage() {
 
       const real = data.message;
 
-      // ถ้า SSE/Poll ได้แทนที่ไปแล้ว → แค่อัปเดตลอค/เคลียร์ temp
       if (!pendingSigRef.current.has(tempSig)) {
-        setMessages(prev => dedupeByIdKeepOrder(prev)); // safety
+        setMessages(prev => dedupeByIdKeepOrder(prev));
       } else {
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === tempId);
-          if (idx === -1) return mergeMessagesUnique(prev, [real]); // กันกรณีหลุด
+          if (idx === -1) return mergeMessagesUnique(prev, [real]);
           const arr = prev.slice();
           arr[idx] = real;
           return dedupeByIdKeepOrder(arr);
         });
-        // เก็บกวาด URL ของ temp
         const urls = tempUrlsRef.current.get(tempId) || [];
         urls.forEach(u => URL.revokeObjectURL(u));
         tempUrlsRef.current.delete(tempId);
         tempStoreRef.current.delete(tempId);
       }
 
-      // ปลดล็อกลายเซ็น
       pendingSigRef.current.delete(tempSig);
       tempIdBySigRef.current.delete(tempSig);
 
       lastTsRef.current = real?.createdAt || lastTsRef.current;
       lastEventRef.current = Date.now();
       ensureVisible(true);
+      scheduleRead({ force: false }); // หลังส่งเสร็จ เราอยู่ก้น → เคลียร์ unread ของเราเองด้วย
     } catch (e) {
       setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
       pendingSigRef.current.delete(tempSig);
@@ -441,6 +463,7 @@ export default function ConversationPage() {
       lastTsRef.current = real?.createdAt || lastTsRef.current;
       lastEventRef.current = Date.now();
       ensureVisible(true);
+      scheduleRead({ force: false });
     } catch (e) {
       setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
       pendingSigRef.current.delete(tempSig);
@@ -458,6 +481,33 @@ export default function ConversationPage() {
       previews.forEach(u => URL.revokeObjectURL(u));
     };
   }, []); // eslint-disable-line
+
+  // อ่านอัตโนมัติเมื่อ bottom sentinel โผล่ใน viewport ของ scroller
+  useEffect(() => {
+    const root = scrollerRef.current;
+    const target = bottomSentinelRef.current;
+    if (!root || !target) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) scheduleRead({ force: true });
+      },
+      { root, threshold: 0.1 }
+    );
+    io.observe(target);
+    return () => io.disconnect();
+  }, []);
+
+  // เมื่อหน้าต่างโฟกัส/แท็บ visible → ลอง read อีกที
+  useEffect(() => {
+    const onFocus = () => scheduleRead({ force: false });
+    const onVis = () => { if (document.visibilityState === "visible") scheduleRead({ force: false }); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -500,6 +550,7 @@ export default function ConversationPage() {
           ref={scrollerRef}
           className="h-[62vh] sm:h-[68vh] overflow-y-auto rounded-2xl border border-slate-100 bg-white p-4"
           style={{ scrollBehavior: "auto" }}
+          onScroll={() => scheduleRead({ force: false })}
         >
           {messages.length === 0 ? (
             <div className="h-full grid place-items-center text-slate-500">เริ่มต้นการสนทนาได้เลย</div>
@@ -509,8 +560,7 @@ export default function ConversationPage() {
                 const mine = !!meId && m.senderId === meId;
                 const u = getUserOfMessage(m);
                 const imgs = (m.attachments?.length ? m.attachments : m.images) || [];
-
-                const handleImgLoad = () => ensureVisible(mine);
+                const handleImgLoad = () => { ensureVisible(mine); scheduleRead({ force: false }); };
 
                 return (
                   <div key={m.id || `${m.createdAt}-${i}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -565,6 +615,8 @@ export default function ConversationPage() {
                   </div>
                 );
               })}
+              {/* sentinel ตรวจว่ามาถึงก้นจริง */}
+              <div ref={bottomSentinelRef} style={{ height: 1 }} />
             </div>
           )}
         </div>
@@ -648,7 +700,6 @@ function EmojiPicker({ onPick }) {
   const btnRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
-  // โหลด recent จาก localStorage
   useEffect(() => {
     try {
       const r = JSON.parse(localStorage.getItem("emoji_recent") || "[]");
@@ -656,7 +707,6 @@ function EmojiPicker({ onPick }) {
     } catch {}
   }, []);
 
-  // ปิดเมื่อคลิกนอก/กด Esc/เลื่อนจอ
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
@@ -676,8 +726,8 @@ function EmojiPicker({ onPick }) {
     const r = btnRef.current.getBoundingClientRect();
     const width = 300, height = 320, margin = 8;
     let left = r.left;
-    let top = r.top - height - margin; // เปิดขึ้นด้านบนเป็นค่าเริ่ม
-    if (top < margin) top = r.bottom + margin; // ถ้าชนบน ให้ลงล่าง
+    let top = r.top - height - margin;
+    if (top < margin) top = r.bottom + margin;
     if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
     if (left < margin) left = margin;
     setPos({ top, left });
@@ -697,7 +747,6 @@ function EmojiPicker({ onPick }) {
   const pick = (e) => {
     onPick(e);
     setOpen(false);
-    // update recent
     const next = [e, ...recent.filter(x => x !== e)].slice(0, 18);
     setRecent(next);
     try { localStorage.setItem("emoji_recent", JSON.stringify(next)); } catch {}
@@ -721,7 +770,6 @@ function EmojiPicker({ onPick }) {
             style={{ top: pos.top, left: pos.left }}
             onMouseDown={(e)=>e.stopPropagation()}
           >
-
             {!!recent.length && !query && (
               <>
                 <div className="px-2 text-[11px] text-slate-500 mb-1">ใช้บ่อย</div>

@@ -24,7 +24,11 @@ export async function POST(_req, ctx) {
     const { id } = await ctx.params;
     if (!id) return NextResponse.json({ success:false, message:"Missing id" }, { status:400 });
 
-    const member = await prisma.conversationMember.findFirst({ where: { conversationId: id, userId: user.id }, select: { id: true }});
+    // ต้องเป็นสมาชิกห้อง
+    const member = await prisma.conversationMember.findFirst({
+      where: { conversationId: id, userId: user.id },
+      select: { id: true }
+    });
     if (!member) return NextResponse.json({ success:false, message:"Forbidden" }, { status:403 });
 
     await prisma.conversationMember.updateMany({

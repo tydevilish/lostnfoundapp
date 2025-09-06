@@ -10,7 +10,7 @@ export default function MessagesListPage() {
   const fetchList = async () => {
     setLoading(true); setErr("");
     try {
-      const res = await fetch("/api/messages", { cache: "no-store" });
+      const res = await fetch("/api/messages", { cache: "no-store", credentials: "include" });
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data?.message || "โหลดรายการไม่สำเร็จ");
       setItems(data.items || []);
@@ -19,7 +19,17 @@ export default function MessagesListPage() {
     } finally { setLoading(false); }
   };
 
-  useEffect(()=>{ fetchList(); }, []);
+  useEffect(() => {
+    fetchList();
+    const onFocus = () => fetchList();
+    const onVis = () => { if (document.visibilityState === "visible") fetchList(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
   return (
     <div className="min-h-[80vh] bg-gradient-to-b from-blue-100/40 to-white">
