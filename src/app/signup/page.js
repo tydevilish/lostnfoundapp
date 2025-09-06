@@ -470,7 +470,7 @@ function InputBase({ id, type, value, onChange, onBlur, placeholder, rightButton
         onChange={onChange}
         onBlur={onBlur}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 pr-11 outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-200"
+        className="w-full text-black rounded-xl border border-slate-300 bg-white px-4 py-2.5 pr-11 outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-200"
       />
       {rightButton}
     </>
