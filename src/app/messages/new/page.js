@@ -9,7 +9,7 @@ export default function Page() {
   return (
     <Suspense
       fallback={
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 text-center">
+        <div className="max-w-6xl text-black mx-auto px-4 sm:px-6 py-12 text-center">
           กำลังเปิดห้องสนทนา…
         </div>
       }

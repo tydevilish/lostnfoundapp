@@ -1,5 +1,7 @@
 // app/lost/page.jsx
 "use client";
+
+import { Suspense } from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -33,7 +35,39 @@ const PLACE_OPTIONS = [
 
 const PAGE_SIZE = 9;
 
-export default function Lost() {
+/* ========= Default export wrapped with Suspense ========= */
+export default function LostPage() {
+  return (
+    <Suspense fallback={<LostPageFallback />}>
+      <Lost />
+    </Suspense>
+  );
+}
+
+/* ========= Fallback while Suspense resolves ========= */
+function LostPageFallback() {
+  return (
+    <div className="min-h-[80vh] bg-gradient-to-b from-blue-100/40 to-white">
+      <section className="relative bg-gradient-to-r from-blue-900 to-blue-700">
+        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_20%,white_0,transparent_40%),radial-gradient(circle_at_80%_30%,white_0,transparent_40%)]" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-8">
+          <div className="h-7 w-56 rounded bg-white/20 mb-2" />
+          <div className="h-4 w-80 rounded bg-white/10" />
+        </div>
+      </section>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
+          {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            <div key={i} className="h-64 rounded-2xl bg-slate-100/70 animate-pulse" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ========= Actual page content (uses useSearchParams) ========= */
+function Lost() {
   const searchParams = useSearchParams();
 
   // ---------- me ----------
@@ -100,16 +134,7 @@ export default function Lost() {
     const to = searchParams.get("to") || "";
 
     setFilters((prev) => {
-      const next = {
-        q,
-        category,
-        categoryOther,
-        place,
-        placeOther,
-        status,
-        from,
-        to,
-      };
+      const next = { q, category, categoryOther, place, placeOther, status, from, to };
       const same = Object.keys(next).every(
         (k) => String(prev[k] || "") === String(next[k] || "")
       );
@@ -291,7 +316,11 @@ export default function Lost() {
                     <button
                       onClick={() => goto(page + 1)}
                       disabled={page >= totalPages}
-                       className={`rounded-full px-3 py-1.5 text-sm border ${page>=totalPages ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"} border-slate-300 text-slate-700`}
+                      className={`rounded-full px-3 py-1.5 text-sm border ${
+                        page >= totalPages
+                          ? "opacity-50 cursor-not-allowed"
+                          : "hover:bg-slate-50"
+                      } border-slate-300 text-slate-700`}
                     >
                       ถัดไป →
                     </button>
