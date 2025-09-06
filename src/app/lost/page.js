@@ -58,7 +58,10 @@ function LostPageFallback() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-            <div key={i} className="h-64 rounded-2xl bg-slate-100/70 animate-pulse" />
+            <div
+              key={i}
+              className="h-64 rounded-2xl bg-slate-100/70 animate-pulse"
+            />
           ))}
         </div>
       </div>
@@ -134,7 +137,16 @@ function Lost() {
     const to = searchParams.get("to") || "";
 
     setFilters((prev) => {
-      const next = { q, category, categoryOther, place, placeOther, status, from, to };
+      const next = {
+        q,
+        category,
+        categoryOther,
+        place,
+        placeOther,
+        status,
+        from,
+        to,
+      };
       const same = Object.keys(next).every(
         (k) => String(prev[k] || "") === String(next[k] || "")
       );
@@ -490,25 +502,23 @@ function FilterPanel({ filters, setFilters, compact = false }) {
           <option value="resolved">ส่งคืนแล้ว</option>
         </Select>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="จาก">
-            <input
-              type="date"
+            <DateInput
+              id="from"
               value={filters.from}
               onChange={(e) =>
                 setFilters((f) => ({ ...f, from: e.target.value }))
               }
-              className="w-full text-black rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-200"
             />
           </Field>
           <Field label="ถึง">
-            <input
-              type="date"
+            <DateInput
+              id="to"
               value={filters.to}
               onChange={(e) =>
                 setFilters((f) => ({ ...f, to: e.target.value }))
               }
-              className="w-full text-black rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-200"
             />
           </Field>
         </div>
@@ -757,4 +767,22 @@ function formatDate(d) {
   } catch {
     return d;
   }
+}
+function DateInput({ id, value, onChange }) {
+  return (
+    <div
+      className="relative rounded-xl ring-1 ring-slate-300 bg-white
+                    focus-within:ring-2 focus-within:ring-blue-900 overflow-hidden"
+    >
+      <input
+        id={id}
+        type="date"
+        value={value}
+        onChange={onChange}
+        className="block w-full border-0 outline-none ring-0 bg-transparent
+                   px-3 py-2.5 text-black appearance-none
+                   [color-scheme:light]" // กัน iOS ดาร์กโหมด invert สี
+      />
+    </div>
+  );
 }
