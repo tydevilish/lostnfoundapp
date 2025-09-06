@@ -65,7 +65,7 @@ export default function Navigation() {
           {/* Left */}
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-3">
-              <img src="/logo/logo.png" alt="logo" className="h-10 w-auto" />
+              <img src="/logo/logo.png" alt="logo" className="h-18 w-auto" />
             </Link>
 
             {/* Desktop menu */}
