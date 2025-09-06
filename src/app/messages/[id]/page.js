@@ -2,10 +2,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
-const EMOJIS = ["😀","😂","😊","😍","🤔","😎","🤝","🙏","🎉","👍","🔥","❤️"];
+/** อีโมจิยอดฮิต (เพิ่มจากของเดิม + จัดหมวด) */
+const EMOJI_SMILEYS = ["😀","😁","😂","🤣","😊","😍","😘","🙂","🤔","😅","😎","😇","🥳","🤩","😴","😭","😡","😤","🤯"];
+const EMOJI_HANDS   = ["👍","👎","🙏","👏","🙌","👌","🤝","✌️","👋","🤏","🤘","☝️","✊","🤚","👉","👈","👇","👆"];
+const EMOJI_MISC    = ["🔥","❤️","💙","💚","💛","💜","🖤","🤍","✨","🎉"];
+const EMOJI_ALL = [...EMOJI_SMILEYS, ...EMOJI_HANDS, ...EMOJI_MISC];
 
 // ===== ตั้งค่าความถี่ Poll แบบ Adaptive =====
 const POLL_MS = { active: 1000, idle: 3000, hidden: 10000 };
@@ -43,6 +48,49 @@ function dedupeByIdKeepOrder(arr) {
   return out;
 }
 
+/** บีบอัดรูปฝั่ง client (เร็ว + ขนาดเล็กลง ส่งไวขึ้น) */
+async function compressImages(files, { maxSide = 1600, quality = 0.8 } = {}) {
+  const results = [];
+  for (const f of files) {
+    const dataUrl = await fileToDataURL(f);
+    const { blob, width, height } = await resizeDataURL(dataUrl, { maxSide, quality });
+    const file = new File([blob], `img-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`, { type: blob.type || "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+    results.push({ file, url, width, height });
+  }
+  return results; // [{file, url}]
+}
+
+function fileToDataURL(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function resizeDataURL(dataUrl, { maxSide = 1600, quality = 0.8 } = {}) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      let tw = width, th = height;
+      if (Math.max(width, height) > maxSide) {
+        if (width > height) { tw = maxSide; th = Math.round(height * maxSide / width); }
+        else { th = maxSide; tw = Math.round(width * maxSide / height); }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = tw; canvas.height = th;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, tw, th);
+      canvas.toBlob((b) => resolve({ blob: b || new Blob(), width: tw, height: th }), "image/jpeg", quality);
+    };
+    img.onerror = () => resolve({ blob: new Blob(), width: 0, height: 0 });
+    img.src = dataUrl;
+  });
+}
+
 export default function ConversationPage() {
   const { id } = useParams();
 
@@ -51,8 +99,9 @@ export default function ConversationPage() {
   const [messages, setMessages] = useState([]);
   const [err, setErr] = useState("");
   const [text, setText] = useState("");
-  const [files, setFiles] = useState([]);
-  const [previews, setPreviews] = useState([]);
+  const [files, setFiles] = useState([]);        // (compressed) File[]
+  const [previews, setPreviews] = useState([]);  // objectURL ของ compressed
+  const [compressing, setCompressing] = useState(false);
   const [meId, setMeId] = useState(null);
 
   const sendingRef = useRef(false);
@@ -81,10 +130,12 @@ export default function ConversationPage() {
   const getUserOfMessage = (m) => m?.sender || memberById.get(m?.senderId) || null;
   const getName = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "ผู้ใช้";
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (smooth = true) => {
     const el = scrollerRef.current;
     if (!el) return;
+    if (smooth) el.style.scrollBehavior = "smooth";
     el.scrollTop = el.scrollHeight + 9999;
+    if (smooth) setTimeout(() => (el.style.scrollBehavior = "auto"), 300);
   };
 
   const isNearBottom = () => {
@@ -92,6 +143,10 @@ export default function ConversationPage() {
     if (!el) return false;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
     return gap < 120;
+  };
+
+  const ensureVisible = (fromMe = false) => {
+    if (fromMe || isNearBottom()) requestAnimationFrame(() => scrollToBottom(true));
   };
 
   const nextDelay = () => {
@@ -116,7 +171,7 @@ export default function ConversationPage() {
       const last = (data.messages || [])[Math.max(0, (data.messages || []).length - 1)];
       lastTsRef.current = last?.createdAt || null;
       lastEventRef.current = Date.now();
-      queueMicrotask(scrollToBottom);
+      requestAnimationFrame(() => scrollToBottom(false));
     } catch (e) {
       setErr(e.message || "เกิดข้อผิดพลาด");
     } finally {
@@ -132,7 +187,7 @@ export default function ConversationPage() {
     const tempId = tempIdBySigRef.current.get(sig);
     setMessages(prev => {
       const idx = prev.findIndex(m => m.id === tempId);
-      if (idx === -1) return prev; // ไม่เจอ temp ก็อย่าไป append — รอ POST แทน
+      if (idx === -1) return prev; // ไม่เจอ temp ก็อย่า append — รอ POST แทน
       const arr = prev.slice();
       arr[idx] = realMsg; // แทนที่ตรงตำแหน่งเดิม → ไม่เกิด flash ซ้ำ
       return dedupeByIdKeepOrder(arr);
@@ -160,17 +215,16 @@ export default function ConversationPage() {
           if (msg.senderId === meId && replaceOptimisticBySignature(msg)) {
             lastTsRef.current = msg.createdAt;
             lastEventRef.current = Date.now();
-            queueMicrotask(scrollToBottom);
+            ensureVisible(true);
             return;
           }
-          // ปกติ: merge กันซ้ำ
           setMessages(prev => {
             const next = mergeMessagesUnique(prev, [msg]);
             lastTsRef.current = msg.createdAt;
             return next;
           });
           lastEventRef.current = Date.now();
-          queueMicrotask(scrollToBottom);
+          ensureVisible(msg.senderId === meId);
         }
       } catch {}
     };
@@ -203,9 +257,11 @@ export default function ConversationPage() {
           setMessages(prev => {
             // ลองแทนที่ temp ถ้าข้อความจากตัวเองตรงลายเซ็น
             let arr = prev;
+            let gotMine = false;
             for (const m of data.messages) {
               if (m.senderId === meId && pendingSigRef.current.has(signatureOf(m))) {
-                const tempId = tempIdBySigRef.current.get(signatureOf(m));
+                const sig = signatureOf(m);
+                const tempId = tempIdBySigRef.current.get(sig);
                 const idx = arr.findIndex(x => x.id === tempId);
                 if (idx !== -1) {
                   const copy = arr.slice();
@@ -216,21 +272,20 @@ export default function ConversationPage() {
                   urls.forEach(u => URL.revokeObjectURL(u));
                   tempUrlsRef.current.delete(tempId);
                   tempStoreRef.current.delete(tempId);
-                  pendingSigRef.current.delete(signatureOf(m));
-                  tempIdBySigRef.current.delete(signatureOf(m));
+                  pendingSigRef.current.delete(sig);
+                  tempIdBySigRef.current.delete(sig);
+                  gotMine = true;
                 }
-              } else {
-                // อันที่ไม่ใช่ของเรา: ค่อยรวมทีหลัง
               }
             }
-            // รวมทั้งหมดแบบกันซ้ำ
             const merged = mergeMessagesUnique(arr, data.messages);
             const last = data.messages[data.messages.length - 1];
             lastTsRef.current = last?.createdAt || lastTsRef.current;
+            // เลื่อนเฉพาะเมื่อใกล้ก้นหรือเป็นของเรา
+            setTimeout(() => ensureVisible(gotMine), 0);
             return merged;
           });
           lastEventRef.current = Date.now();
-          queueMicrotask(scrollToBottom);
         }
       } catch {}
 
@@ -241,13 +296,18 @@ export default function ConversationPage() {
     return () => { stopped = true; };
   }, [id, text, meId]);
 
-  // ===== อัพโหลด preview
-  const onPickFiles = (e) => {
+  // ===== อัพโหลด preview (บีบอัดก่อน เพื่อส่งไวขึ้น + ใช้ preview จากไฟล์ที่บีบแล้ว)
+  const onPickFiles = async (e) => {
     const arr = Array.from(e.target.files || []).filter(f => f.type.startsWith("image/"));
     if (!arr.length) return;
-    setFiles(prev => [...prev, ...arr]);
-    const urls = arr.map(f => URL.createObjectURL(f));
-    setPreviews(prev => [...prev, ...urls]);
+    setCompressing(true);
+    try {
+      const compressed = await compressImages(arr, { maxSide: 1600, quality: 0.82 });
+      setFiles(prev => [...prev, ...compressed.map(c => c.file)]);
+      setPreviews(prev => [...prev, ...compressed.map(c => c.url)]);
+    } finally {
+      setCompressing(false);
+    }
   };
   const removePreview = (i) => {
     setFiles(p => p.filter((_, idx) => idx !== i));
@@ -267,7 +327,7 @@ export default function ConversationPage() {
     sendingRef.current = true;
 
     const tempId = `temp-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
-    const tempUrls = files.map(f => URL.createObjectURL(f));
+    const tempUrls = previews.slice(); // ใช้ preview ที่บีบแล้ว
     const tempMsg = {
       id: tempId,
       senderId: meId,
@@ -283,11 +343,11 @@ export default function ConversationPage() {
     pendingSigRef.current.add(tempSig);
     tempIdBySigRef.current.set(tempSig, tempId);
 
-    tempStoreRef.current.set(tempId, { text: payloadText, files });
-    tempUrlsRef.current.set(tempId, tempUrls);
+    tempStoreRef.current.set(tempId, { text: payloadText, files: files.slice() });
+    tempUrlsRef.current.set(tempId, tempUrls.slice());
 
     setMessages(prev => mergeMessagesUnique(prev, [tempMsg]));
-    queueMicrotask(scrollToBottom);
+    ensureVisible(true); // เราส่งเอง → เลื่อนเสมอ
 
     // เคลียร์อินพุตทันที
     setText("");
@@ -308,11 +368,8 @@ export default function ConversationPage() {
 
       // ถ้า SSE/Poll ได้แทนที่ไปแล้ว → แค่อัปเดตลอค/เคลียร์ temp
       if (!pendingSigRef.current.has(tempSig)) {
-        // temp ถูกแทนที่แล้ว โดย SSE/Poll
-        // ensure มี real อยู่แล้ว → ไม่ต้อง push
-        setMessages(prev => dedupeByIdKeepOrder(prev)); // no-op safety
+        setMessages(prev => dedupeByIdKeepOrder(prev)); // safety
       } else {
-        // ยังไม่ถูกแทนที่ → แทนที่ temp ตรงนี้
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === tempId);
           if (idx === -1) return mergeMessagesUnique(prev, [real]); // กันกรณีหลุด
@@ -333,9 +390,8 @@ export default function ConversationPage() {
 
       lastTsRef.current = real?.createdAt || lastTsRef.current;
       lastEventRef.current = Date.now();
-      queueMicrotask(scrollToBottom);
+      ensureVisible(true);
     } catch (e) {
-      // ส่งพลาด → แจ้งสถานะและปลดล็อก เพื่อให้ข้อความฝั่งเซิร์ฟเวอร์ในอนาคต (ถ้ามี) ไม่โดน drop
       setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
       pendingSigRef.current.delete(tempSig);
       tempIdBySigRef.current.delete(tempSig);
@@ -352,7 +408,6 @@ export default function ConversationPage() {
     sendingRef.current = true;
     setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: false } : m)));
 
-    // ลงทะเบียนลายเซ็นใหม่ (ไฟล์/ข้อความเดิม)
     const tempMsgLike = { id: tempId, senderId: meId, text: payload.text, attachments: (tempUrlsRef.current.get(tempId) || []) };
     const tempSig = signatureOf(tempMsgLike);
     pendingSigRef.current.add(tempSig);
@@ -369,7 +424,6 @@ export default function ConversationPage() {
 
       const real = data.message;
 
-      // ถ้ายังล็อกอยู่ → แทนที่ temp
       if (pendingSigRef.current.has(tempSig)) {
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === tempId);
@@ -386,7 +440,7 @@ export default function ConversationPage() {
 
       lastTsRef.current = real?.createdAt || lastTsRef.current;
       lastEventRef.current = Date.now();
-      queueMicrotask(scrollToBottom);
+      ensureVisible(true);
     } catch (e) {
       setMessages(prev => prev.map(m => (m.id === tempId ? { ...m, __failed: true } : m)));
       pendingSigRef.current.delete(tempSig);
@@ -401,8 +455,9 @@ export default function ConversationPage() {
     return () => {
       for (const urls of tempUrlsRef.current.values()) urls.forEach((u) => URL.revokeObjectURL(u));
       tempUrlsRef.current.clear();
+      previews.forEach(u => URL.revokeObjectURL(u));
     };
-  }, []);
+  }, []); // eslint-disable-line
 
   if (loading) {
     return (
@@ -441,7 +496,11 @@ export default function ConversationPage() {
 
       {/* chat body */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-        <div ref={scrollerRef} className="h-[62vh] sm:h-[68vh] overflow-y-auto rounded-2xl border border-slate-100 bg-white p-4">
+        <div
+          ref={scrollerRef}
+          className="h-[62vh] sm:h-[68vh] overflow-y-auto rounded-2xl border border-slate-100 bg-white p-4"
+          style={{ scrollBehavior: "auto" }}
+        >
           {messages.length === 0 ? (
             <div className="h-full grid place-items-center text-slate-500">เริ่มต้นการสนทนาได้เลย</div>
           ) : (
@@ -450,6 +509,8 @@ export default function ConversationPage() {
                 const mine = !!meId && m.senderId === meId;
                 const u = getUserOfMessage(m);
                 const imgs = (m.attachments?.length ? m.attachments : m.images) || [];
+
+                const handleImgLoad = () => ensureVisible(mine);
 
                 return (
                   <div key={m.id || `${m.createdAt}-${i}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -469,7 +530,7 @@ export default function ConversationPage() {
                       {!!imgs.length && (
                         <div className="mt-1 grid grid-cols-2 gap-2">
                           {imgs.map((src, j) => (
-                            <img key={j} src={src} alt={`img-${j}`} className="rounded-lg object-cover w-full h-32" />
+                            <img key={j} src={src} alt={`img-${j}`} className="rounded-lg object-cover w-full h-32" onLoad={handleImgLoad} />
                           ))}
                         </div>
                       )}
@@ -522,8 +583,14 @@ export default function ConversationPage() {
             </div>
           )}
 
+          {compressing && (
+            <div className="mb-2 text-xs text-slate-500 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" /> กำลังลดขนาดรูป…
+            </div>
+          )}
+
           <div className="flex items-end gap-2">
-            <EmojiPicker onPick={(emo)=>setText(t=>t+emo)} />
+            <EmojiPicker onPick={(emo)=>{ setText(t=>t+emo); inputRef.current?.focus(); }} />
             <textarea
               ref={inputRef}
               value={text}
@@ -551,7 +618,7 @@ export default function ConversationPage() {
   );
 }
 
-/* ===== Avatar + Emoji ===== */
+/* ===== Avatar + Emoji (ใหม่: สวยขึ้น, ไม่ซ้อน, ค้นหา/ล่าสุด) ===== */
 
 function AvatarCircle({ user, size = 36 }) {
   const url = user?.avatarUrl;
@@ -576,38 +643,110 @@ function AvatarCircle({ user, size = 36 }) {
 
 function EmojiPicker({ onPick }) {
   const [open, setOpen] = useState(false);
-  const popRef = useRef(null);
+  const [query, setQuery] = useState("");
+  const [recent, setRecent] = useState([]);
+  const btnRef = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
 
+  // โหลด recent จาก localStorage
+  useEffect(() => {
+    try {
+      const r = JSON.parse(localStorage.getItem("emoji_recent") || "[]");
+      if (Array.isArray(r)) setRecent(r.slice(0, 18));
+    } catch {}
+  }, []);
+
+  // ปิดเมื่อคลิกนอก/กด Esc/เลื่อนจอ
   useEffect(() => {
     if (!open) return;
-    const onDown = (e) => {
-      if (!popRef.current) return;
-      if (popRef.current.contains(e.target)) return;
-      setOpen(false);
+    const close = () => setOpen(false);
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
     };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
   }, [open]);
 
+  const updatePosition = () => {
+    if (!btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const width = 300, height = 320, margin = 8;
+    let left = r.left;
+    let top = r.top - height - margin; // เปิดขึ้นด้านบนเป็นค่าเริ่ม
+    if (top < margin) top = r.bottom + margin; // ถ้าชนบน ให้ลงล่าง
+    if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+    if (left < margin) left = margin;
+    setPos({ top, left });
+  };
+
+  const toggle = () => {
+    if (!open) {
+      updatePosition();
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  };
+
+  const filtered = (query ? EMOJI_ALL.filter(e => e.includes(query)) : EMOJI_ALL).slice(0, 200);
+
+  const pick = (e) => {
+    onPick(e);
+    setOpen(false);
+    // update recent
+    const next = [e, ...recent.filter(x => x !== e)].slice(0, 18);
+    setRecent(next);
+    try { localStorage.setItem("emoji_recent", JSON.stringify(next)); } catch {}
+  };
+
   return (
-    <div className="relative">
-      <button onClick={()=>setOpen(o=>!o)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50">😊</button>
-      {open && (
-        <div
-          ref={popRef}
-          className="absolute bottom-full mb-2 left-0 sm:left-auto sm:right-0 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-50 min-w-[180px] max-w-[260px]"
-          style={{ transform: "translateY(-4px)" }}
-        >
-          <div className="grid grid-cols-7 gap-1">
-            {EMOJIS.map((e)=>(
-              <button key={e} className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
-                      onClick={()=>{ onPick(e); setOpen(false); }} title={e}>
-                {e}
-              </button>
-            ))}
+    <>
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+        aria-label="เลือกอีโมจิ"
+      >
+        😊
+      </button>
+
+      {open && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[100]" onMouseDown={() => setOpen(false)}>
+          <div
+            className="absolute bg-white border border-slate-200 rounded-2xl shadow-2xl p-2 w-[300px]"
+            style={{ top: pos.top, left: pos.left }}
+            onMouseDown={(e)=>e.stopPropagation()}
+          >
+
+            {!!recent.length && !query && (
+              <>
+                <div className="px-2 text-[11px] text-slate-500 mb-1">ใช้บ่อย</div>
+                <div className="grid grid-cols-8 gap-1 px-2 mb-2">
+                  {recent.map((e,i)=>(
+                    <button key={`r-${i}`} className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
+                      onClick={()=>pick(e)} title={e}>{e}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="px-2 text-[11px] text-slate-500 mb-1">{query ? "ผลลัพธ์" : "ทั้งหมด"}</div>
+            <div className="max-h-[220px] overflow-y-auto px-2 pb-2">
+              <div className="grid grid-cols-8 gap-1">
+                {filtered.map((e,i)=>(
+                  <button key={`a-${i}`} className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
+                    onClick={()=>pick(e)} title={e}>{e}</button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
