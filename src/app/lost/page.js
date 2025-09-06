@@ -35,6 +35,46 @@ const PLACE_OPTIONS = [
 
 const PAGE_SIZE = 9;
 
+/* ========= UI: Spinner + Center overlay ========= */
+function Spinner({ size = 18, className = "" }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
+function CenterLoading({ label = "กำลังโหลดข้อมูล..." }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div className="rounded-xl bg-white/90 backdrop-blur px-4 py-3 border border-slate-200 shadow">
+        <div className="flex items-center gap-2 text-slate-700">
+          <Spinner className="text-blue-700" />
+          <span className="font-medium">{label}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ========= Default export wrapped with Suspense ========= */
 export default function LostPage() {
   return (
@@ -56,13 +96,16 @@ function LostPageFallback() {
         </div>
       </section>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
-          {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-            <div
-              key={i}
-              className="h-64 rounded-2xl bg-slate-100/70 animate-pulse"
-            />
-          ))}
+        <div className="relative">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
+            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+              <div
+                key={i}
+                className="h-64 rounded-2xl bg-slate-100/70 animate-pulse"
+              />
+            ))}
+          </div>
+          <CenterLoading />
         </div>
       </div>
     </div>
@@ -262,7 +305,7 @@ function Lost() {
           </aside>
 
           {/* List */}
-          <main className="md:col-span-9">
+          <main className="relative md:col-span-9">
             {/* top search (mobile) */}
             <div className="md:hidden mb-4">
               <SearchBar
@@ -271,75 +314,79 @@ function Lost() {
               />
             </div>
 
-            {loadingList ? (
-              <div
-                className={`grid ${mobileColsClass} sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5`}
-              >
-                {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-64 rounded-2xl bg-slate-100/70 animate-pulse"
-                  />
-                ))}
-              </div>
-            ) : items.length === 0 ? (
-              <EmptyState />
-            ) : (
-              <>
+            <div className="relative" aria-live="polite" aria-busy={loadingList}>
+              {loadingList && <CenterLoading />}
+
+              {loadingList ? (
                 <div
                   className={`grid ${mobileColsClass} sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5`}
                 >
-                  {pageItems.map((it) => (
-                    <LostCard
-                      key={it.id}
-                      item={it}
-                      compact={mobileCols === 2}
-                      meId={me?.id}
+                  {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-64 rounded-2xl bg-slate-100/70 animate-pulse"
                     />
                   ))}
                 </div>
+              ) : items.length === 0 ? (
+                <EmptyState />
+              ) : (
+                <>
+                  <div
+                    className={`grid ${mobileColsClass} sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5`}
+                  >
+                    {pageItems.map((it) => (
+                      <LostCard
+                        key={it.id}
+                        item={it}
+                        compact={mobileCols === 2}
+                        meId={me?.id}
+                      />
+                    ))}
+                  </div>
 
-                {/* pagination */}
-                <div className="mt-5 flex items-center justify-between">
-                  <div className="text-xs text-slate-600">
-                    แสดง {sliceStart + 1}-
-                    {Math.min(sliceStart + PAGE_SIZE, items.length)} จาก{" "}
-                    {items.length} รายการ
+                  {/* pagination */}
+                  <div className="mt-5 flex items-center justify-between">
+                    <div className="text-xs text-slate-600">
+                      แสดง {sliceStart + 1}-
+                      {Math.min(sliceStart + PAGE_SIZE, items.length)} จาก{" "}
+                      {items.length} รายการ
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => goto(page - 1)}
+                        disabled={page <= 1}
+                        className={`rounded-full px-3 py-1.5 text-sm border ${
+                          page <= 1
+                            ? "opacity-50 cursor-not-allowed"
+                            : "hover:bg-slate-50"
+                        } border-slate-300 text-slate-700`}
+                      >
+                        ← ก่อนหน้า
+                      </button>
+                      <span className="text-sm text-slate-600">
+                        หน้า{" "}
+                        <span className="font-semibold text-blue-900">
+                          {page}
+                        </span>{" "}
+                        / {totalPages}
+                      </span>
+                      <button
+                        onClick={() => goto(page + 1)}
+                        disabled={page >= totalPages}
+                        className={`rounded-full px-3 py-1.5 text-sm border ${
+                          page >= totalPages
+                            ? "opacity-50 cursor-not-allowed"
+                            : "hover:bg-slate-50"
+                        } border-slate-300 text-slate-700`}
+                      >
+                        ถัดไป →
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => goto(page - 1)}
-                      disabled={page <= 1}
-                      className={`rounded-full px-3 py-1.5 text-sm border ${
-                        page <= 1
-                          ? "opacity-50 cursor-not-allowed"
-                          : "hover:bg-slate-50"
-                      } border-slate-300 text-slate-700`}
-                    >
-                      ← ก่อนหน้า
-                    </button>
-                    <span className="text-sm text-slate-600">
-                      หน้า{" "}
-                      <span className="font-semibold text-blue-900">
-                        {page}
-                      </span>{" "}
-                      / {totalPages}
-                    </span>
-                    <button
-                      onClick={() => goto(page + 1)}
-                      disabled={page >= totalPages}
-                      className={`rounded-full px-3 py-1.5 text-sm border ${
-                        page >= totalPages
-                          ? "opacity-50 cursor-not-allowed"
-                          : "hover:bg-slate-50"
-                      } border-slate-300 text-slate-700`}
-                    >
-                      ถัดไป →
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </main>
         </div>
       </div>
@@ -546,6 +593,9 @@ function FilterPanel({ filters, setFilters, compact = false }) {
 }
 
 function LostCard({ item, compact = false, meId }) {
+  const [coverReady, setCoverReady] = useState(false);
+  const [avatarReady, setAvatarReady] = useState(false);
+
   const cover = item.images?.[0];
   const statusResolved =
     (item.status || "").toString().toUpperCase() === "RESOLVED";
@@ -576,12 +626,23 @@ function LostCard({ item, compact = false, meId }) {
       {/* image */}
       <div className={`relative ${imgAspect} bg-slate-100`}>
         {cover ? (
-          <img
-            src={cover}
-            alt={item.name}
-            loading="lazy"
-            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
+          <>
+            {!coverReady && (
+              <div className="absolute inset-0 grid place-items-center">
+                <Spinner className="text-slate-400" />
+              </div>
+            )}
+            <img
+              src={cover}
+              alt={item.name}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setCoverReady(true)}
+              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+                coverReady ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          </>
         ) : (
           <div className="absolute inset-0 grid place-items-center text-slate-400">
             ไม่มีรูป
@@ -659,17 +720,31 @@ function LostCard({ item, compact = false, meId }) {
         {!compact && (
           <div className="mt-3 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={reporter}
-                  className="h-8 w-8 rounded-full object-cover ring-2 ring-blue-100"
-                />
-              ) : (
-                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white grid place-items-center text-[11px] font-bold ring-2 ring-blue-100">
-                  {initials(reporter)}
-                </div>
-              )}
+              <div className="relative h-8 w-8">
+                {avatarUrl ? (
+                  <>
+                    {!avatarReady && (
+                      <div className="absolute inset-0 grid place-items-center">
+                        <Spinner className="text-slate-400" size={14} />
+                      </div>
+                    )}
+                    <img
+                      src={avatarUrl}
+                      alt={reporter}
+                      loading="lazy"
+                      decoding="async"
+                      onLoad={() => setAvatarReady(true)}
+                      className={`h-8 w-8 rounded-full object-cover ring-2 ring-blue-100 transition-opacity duration-300 ${
+                        avatarReady ? "opacity-100" : "opacity-0"
+                      }`}
+                    />
+                  </>
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white grid place-items-center text-[11px] font-bold ring-2 ring-blue-100">
+                    {initials(reporter)}
+                  </div>
+                )}
+              </div>
               <span className="text-xs text-slate-600 truncate">
                 โดย{" "}
                 <span className="font-medium text-blue-900">{reporter}</span>

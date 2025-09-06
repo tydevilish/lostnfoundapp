@@ -29,6 +29,48 @@ const PLACE_OPTIONS = [
   "อื่น ๆ",
 ];
 
+/* ---------- Spinner (หมุน ๆ) ---------- */
+function Spinner({ size = 18, className = "" }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
+
+/* overlay กลางกริดการ์ด */
+function CenterLoading({ label = "กำลังโหลดข้อมูล..." }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className="rounded-xl bg-white/85 backdrop-blur px-4 py-3 border border-slate-200 shadow">
+        <div className="flex items-center gap-2 text-slate-700">
+          <Spinner className="text-blue-700" />
+          <span className="font-medium">{label}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Found() {
   // ---------- list & filters (เฉพาะของฉัน) ----------
   const [loadingList, setLoadingList] = useState(true);
@@ -61,11 +103,12 @@ export default function Found() {
     brand: "",
   });
   const [files, setFiles] = useState([]);
+
   const [previews, setPreviews] = useState([]);
   const fileRef = useRef(null);
   const firstFieldRef = useRef(null);
 
-  // ====== NEW: mobile filter modal + density + pagination ======
+  // mobile filter + density + pagination
   const [openFilter, setOpenFilter] = useState(false);
   const [mobileDensity, setMobileDensity] = useState("x1"); // 'x1' | 'x2'
   const PAGE_SIZE = 9;
@@ -108,6 +151,7 @@ export default function Found() {
         setMineCount(data.mineCount ?? data.items.length ?? 0);
       } else {
         setItems([]);
+        setMineCount(0);
       }
     } finally {
       setLoadingList(false);
@@ -273,9 +317,15 @@ export default function Found() {
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
                 แจ้งพบของ
               </h1>
-              <p className="text-blue-100 mt-1">
+              <p className="text-blue-100 mt-1 flex items-center gap-2">
                 คุณแจ้งพบของทั้งหมด{" "}
-                <span className="font-semibold text-white">{mineCount}</span>{" "}
+                {loadingList ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Spinner className="text-white" />
+                  </span>
+                ) : (
+                  <span className="font-semibold text-white">{mineCount}</span>
+                )}{" "}
                 รายการ
               </p>
             </div>
@@ -342,16 +392,20 @@ export default function Found() {
               </div>
             </div>
 
+            {/* ====== บริเวณการ์ด: แสดงสเกลตัน + overlay กลางคำว่า "กำลังโหลดข้อมูล..." ====== */}
             {loadingList ? (
-              <div
-                className={`grid ${mobileColsClass} sm:grid-cols-2 xl:grid-cols-3 gap-5`}
-              >
-                {Array.from({ length: 9 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-64 rounded-2xl bg-slate-100/70 animate-pulse"
-                  />
-                ))}
+              <div className="relative min-h-[360px]">
+                <div
+                  className={`grid ${mobileColsClass} sm:grid-cols-2 xl:grid-cols-3 gap-5`}
+                >
+                  {Array.from({ length: 9 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-64 rounded-2xl bg-slate-100/70 animate-pulse"
+                    />
+                  ))}
+                </div>
+                <CenterLoading label="กำลังโหลดข้อมูล..." />
               </div>
             ) : items.length === 0 ? (
               <EmptyState onAdd={() => setOpenAdd(true)} />
@@ -660,12 +714,13 @@ export default function Found() {
                   onClick={submit}
                   disabled={saving || !valid}
                   className={[
-                    "rounded-full px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-900 to-blue-700 shadow",
+                    "inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-900 to-blue-700 shadow",
                     saving || !valid
                       ? "opacity-60 cursor-not-allowed"
                       : "hover:shadow-md active:scale-95",
                   ].join(" ")}
                 >
+                  {saving && <Spinner className="text-white" size={16} />}
                   {saving ? "กำลังบันทึก..." : "บันทึก"}
                 </button>
               </div>
@@ -922,8 +977,10 @@ function FilterPanel({ filters, setFilters, compact = false }) {
   );
 }
 
-/* ---------- Card ---------- */
+/* ---------- Card (มีสปินเนอร์ทับรูปจนโหลดเสร็จ) ---------- */
 function FoundCard({ item }) {
+  const [imgReady, setImgReady] = useState(false);
+
   const cover = item.images?.[0];
   const statusResolved = item.status === "RESOLVED";
   const reporter =
@@ -945,11 +1002,23 @@ function FoundCard({ item }) {
     <div className="group rounded-2xl overflow-hidden border border-slate-100 bg-white shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition">
       <div className="relative aspect-[16/9] bg-slate-100">
         {cover ? (
-          <img
-            src={cover}
-            alt={item.name}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
+          <>
+            {!imgReady && (
+              <div className="absolute inset-0 grid place-items-center">
+                <Spinner className="text-slate-400" />
+              </div>
+            )}
+            <img
+              src={cover}
+              alt={item.name}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setImgReady(true)}
+              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+                imgReady ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          </>
         ) : (
           <div className="absolute inset-0 grid place-items-center text-slate-400">
             ไม่มีรูป
@@ -1000,6 +1069,8 @@ function FoundCard({ item }) {
               <img
                 src={avatarUrl}
                 alt={reporter}
+                loading="lazy"
+                decoding="async"
                 className="h-8 w-8 rounded-full object-cover ring-2 ring-blue-100"
               />
             ) : (
@@ -1048,7 +1119,7 @@ function DateInput({ id, value, onChange }) {
         onChange={onChange}
         className="block w-full border-0 outline-none ring-0 bg-transparent
                    px-3 py-2.5 text-black appearance-none
-                   [color-scheme:light]" // กัน iOS ดาร์กโหมด invert สี
+                   [color-scheme:light]"
       />
     </div>
   );

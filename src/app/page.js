@@ -59,12 +59,33 @@ const uniqTop = (arr, key, n = 8) => {
     .slice(0, n)
     .map(([name, count]) => ({ name, count }));
 };
-const initials = (name = "") =>
-  name
-    .split(" ")
-    .map((s) => s[0]?.toUpperCase() || "")
-    .slice(0, 2)
-    .join("") || "U";
+
+function Spinner({ size = 20, className = "" }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
 
 export default function Home() {
   const router = useRouter();
@@ -76,60 +97,68 @@ export default function Home() {
   const [place, setPlace] = useState("");
   const [placeOther, setPlaceOther] = useState("");
 
-  // data state
-  const [loading, setLoading] = useState(true);
+  // data state — แยกโหลดเป็นส่วน ๆ
+  const [loadingLost, setLoadingLost] = useState(true);
+  const [loadingFound, setLoadingFound] = useState(true);
   const [lost, setLost] = useState([]);
   const [found, setFound] = useState([]);
   const [foundNeedsLogin, setFoundNeedsLogin] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    (async () => {
-      setLoading(true);
-      setFoundNeedsLogin(false);
 
-      const grab = async (url) => {
-        const res = await fetch(url, {
+    // โหลด lost แยก
+    (async () => {
+      setLoadingLost(true);
+      try {
+        const res = await fetch("/api/lost?limit=24", {
           cache: "no-store",
           credentials: "include",
         });
         const data = await res.json().catch(() => ({}));
-        return {
-          ok: res.ok,
-          status: res.status,
-          items: Array.isArray(data?.items) ? data.items : [],
-        };
-      };
-
-      const [lostR, foundR] = await Promise.allSettled([
-        grab("/api/lost?limit=24"),
-        grab("/api/found?limit=24"),
-      ]);
-
-      if (!alive) return;
-
-      const L =
-        lostR.status === "fulfilled"
-          ? lostR.value
-          : { ok: false, status: 0, items: [] };
-      const F =
-        foundR.status === "fulfilled"
-          ? foundR.value
-          : { ok: false, status: 0, items: [] };
-
-      setLost(L.items);
-      setFound(F.items);
-
-      if (!F.ok && (F.status === 401 || F.status === 403))
-        setFoundNeedsLogin(true);
-
-      setLoading(false);
+        if (!alive) return;
+        setLost(Array.isArray(data?.items) ? data.items : []);
+      } catch {
+        if (!alive) return;
+        setLost([]);
+      } finally {
+        if (alive) setLoadingLost(false);
+      }
     })();
+
+    // โหลด found แยก
+    (async () => {
+      setLoadingFound(true);
+      try {
+        const res = await fetch("/api/found?limit=24", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const ok = res.ok;
+        const status = res.status;
+        const data = await res.json().catch(() => ({}));
+        if (!alive) return;
+        if (!ok && (status === 401 || status === 403)) {
+          setFoundNeedsLogin(true);
+          setFound([]);
+        } else {
+          setFound(Array.isArray(data?.items) ? data.items : []);
+          setFoundNeedsLogin(false);
+        }
+      } catch {
+        if (!alive) return;
+        setFound([]);
+      } finally {
+        if (alive) setLoadingFound(false);
+      }
+    })();
+
     return () => {
       alive = false;
     };
   }, []);
 
+  // ให้ Top lists คำนวณจากข้อมูลที่ “มีอยู่แล้ว” ก่อน (แสดงแบบเพิ่มขึ้นทีหลังได้)
   const topCategories = useMemo(
     () => uniqTop([...lost, ...found], "category", 8),
     [lost, found]
@@ -169,7 +198,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
-      {/* ===== HERO SECTION (พื้นหลังเป็นรูปเดียว) ===== */}
+      {/* ===== HERO SECTION (พื้นหลังเป็นรูปเดียว) — ไม่บล็อกทั้งหน้า ===== */}
       <section
         className="relative overflow-hidden"
         style={{
@@ -193,7 +222,7 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Search Bar (ตัดแท็บโหมด เหลือค้นหาของหายอย่างเดียว) */}
+          {/* Search Bar */}
           <form onSubmit={submit} className="max-w-4xl mx-auto">
             <div className="bg-white/95 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 overflow-hidden p-6 space-y-4">
               {/* ค้นหาข้อความ */}
@@ -293,9 +322,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ===== MAIN CONTENT (เดิม) ===== */}
+      {/* ===== MAIN CONTENT ===== */}
       <main className="max-w-6xl mx-auto px-6 py-16 space-y-16">
-        {/* Popular Categories & Places */}
+        {/* Popular Categories & Places — แสดงจากข้อมูลที่มี (อาจยังไม่ครบ 2 ฝั่งก็โอเค) */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Categories */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
@@ -312,14 +341,14 @@ export default function Home() {
             </div>
             <div className="flex flex-wrap gap-2">
               {topCategories.length === 0 ? (
-                <div className="grid grid-cols-2 gap-2 w-full">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-10 rounded-lg bg-slate-100 animate-pulse"
-                    />
-                  ))}
-                </div>
+                // ถ้ายังไม่มีข้อมูลจากทั้งสองฝั่งเลย ค่อยโชว์สเกลตัน
+                (loadingLost || loadingFound) ? (
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Spinner /> <span>กำลังประมวลผล...</span>
+                  </div>
+                ) : (
+                  <div className="text-slate-500 text-sm">ยังไม่มีข้อมูล</div>
+                )
               ) : (
                 topCategories.map((c) => (
                   <button
@@ -353,14 +382,13 @@ export default function Home() {
             </div>
             <div className="flex flex-wrap gap-2">
               {topPlaces.length === 0 ? (
-                <div className="grid grid-cols-2 gap-2 w-full">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-10 rounded-lg bg-slate-100 animate-pulse"
-                    />
-                  ))}
-                </div>
+                (loadingLost || loadingFound) ? (
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Spinner /> <span>กำลังประมวลผล...</span>
+                  </div>
+                ) : (
+                  <div className="text-slate-500 text-sm">ยังไม่มีข้อมูล</div>
+                )
               ) : (
                 topPlaces.map((p) => (
                   <button
@@ -380,7 +408,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Recent Items Grid */}
+        {/* Recent Items Grid — แต่ละคอลัมน์โหลดแยก */}
         <section className="grid grid-cols-1 xl:grid-cols-2 gap-8">
           {/* Lost Items */}
           <div>
@@ -395,14 +423,9 @@ export default function Home() {
                 ดูทั้งหมด →
               </Link>
             </div>
-            {loading ? (
-              <div className="space-y-4">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-32 rounded-xl bg-slate-100 animate-pulse"
-                  />
-                ))}
+            {loadingLost ? (
+              <div className="flex items-center gap-2 text-slate-400">
+                <Spinner /> <span>กำลังดึงรายการ...</span>
               </div>
             ) : lost.length === 0 ? (
               <EmptyState text="ยังไม่มีรายการของหาย" icon="🔍" />
@@ -437,9 +460,7 @@ export default function Home() {
                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
                   🔐
                 </div>
-                <h3 className="font-bold text-blue-900 mb-2">
-                  ต้องเข้าสู่ระบบ
-                </h3>
+                <h3 className="font-bold text-blue-900 mb-2">ต้องเข้าสู่ระบบ</h3>
                 <p className="text-blue-700 text-sm mb-4">
                   เพื่อดูรายการพบของและติดต่อผู้แจ้ง
                 </p>
@@ -458,14 +479,9 @@ export default function Home() {
                   </Link>
                 </div>
               </div>
-            ) : loading ? (
-              <div className="space-y-4">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-32 rounded-xl bg-slate-100 animate-pulse"
-                  />
-                ))}
+            ) : loadingFound ? (
+              <div className="flex items-center gap-2 text-slate-400">
+                <Spinner /> <span>กำลังดึงรายการ...</span>
               </div>
             ) : found.length === 0 ? (
               <EmptyState text="ยังไม่มีการแจ้งพบของ" icon="📢" />
@@ -493,9 +509,7 @@ export default function Home() {
             />
           </div>
           <div className="relative">
-            <h3 className="text-3xl font-bold mb-4">
-              พร้อมช่วยกันแล้วใช่ไหม? 🤝
-            </h3>
+            <h3 className="text-3xl font-bold mb-4">พร้อมช่วยกันแล้วใช่ไหม? 🤝</h3>
             <p className="text-blue-100 text-lg mb-8 max-w-2xl mx-auto">
               เริ่มแจ้งพบของ หรือค้นหาของหาย
               ระบบแชทเรียลไทม์จะช่วยให้คุณติดต่อกันได้ทันที
@@ -541,13 +555,11 @@ function CompactItemCard({ item, kind }) {
       ? `${
           (item.createdBy?.firstName ||
             item.owner?.firstName ||
-            item.reporter?.firstName) ??
-          ""
+            item.reporter?.firstName) ?? ""
         } ${
           (item.createdBy?.lastName ||
             item.owner?.lastName ||
-            item.reporter?.lastName) ??
-          ""
+            item.reporter?.lastName) ?? ""
         }`.trim()
       : item.reporterName || "ไม่ระบุ";
 
@@ -575,6 +587,8 @@ function CompactItemCard({ item, kind }) {
               <img
                 src={cover}
                 alt={item.name}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               />
             ) : (
@@ -606,7 +620,7 @@ function CompactItemCard({ item, kind }) {
               {item.description}
             </p>
 
-            {/* ⬇️ ตรงนี้คือส่วนที่ปรับ: มือถือซ้อน 2 แถว ชิดซ้าย; จอ md ขึ้นไปเหมือนเดิม */}
+            {/* มือถือซ้อน 2 แถว / Desktop จัดชิดขวา */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1.5 md:gap-2 text-xs text-slate-500">
               {/* แถว 1: สถานที่ + เวลา */}
               <div className="flex items-center gap-2 md:gap-3 min-w-0">
@@ -622,12 +636,14 @@ function CompactItemCard({ item, kind }) {
                 </span>
               </div>
 
-              {/* แถว 2 (มือถือ) / ขวา (เดสก์ท็อป): ผู้แจ้ง */}
+              {/* แถว 2: ผู้แจ้ง */}
               <div className="flex items-center gap-2 md:justify-end">
                 {avatarUrl ? (
                   <img
                     src={avatarUrl}
                     alt={reporterName}
+                    loading="lazy"
+                    decoding="async"
                     className="w-6 h-6 rounded-full object-cover"
                   />
                 ) : (
@@ -643,7 +659,6 @@ function CompactItemCard({ item, kind }) {
                 </span>
               </div>
             </div>
-            {/* ⬆️ จบส่วนที่ปรับ */}
           </div>
         </div>
       </div>

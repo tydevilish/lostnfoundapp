@@ -2,8 +2,79 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+
+/* ================= UI helpers ================= */
+function Spinner({ size = 18, className = "" }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
+
+function CenterLoading({ label = "กำลังโหลดข้อมูล..." }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div className="rounded-xl bg-white/90 backdrop-blur px-4 py-3 border border-slate-200 shadow">
+        <div className="flex items-center gap-2 text-slate-700">
+          <Spinner className="text-blue-700" />
+          <span className="font-medium">{label}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* รูป + overlay spinner จนกว่าจะโหลดเสร็จ */
+function ImageWithSpinner({
+  src,
+  alt,
+  className = "",
+  spinnerClass = "text-slate-400",
+  imgClass = "",
+  ...rest
+}) {
+  const [ready, setReady] = useState(false);
+  return (
+    <div className={`relative ${className}`}>
+      {!ready && (
+        <div className="absolute inset-0 grid place-items-center">
+          <Spinner className={spinnerClass} />
+        </div>
+      )}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setReady(true)}
+        className={`transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"} ${imgClass}`}
+        {...rest}
+      />
+    </div>
+  );
+}
 
 export default function LostDetailPage() {
   const { id } = useParams();
@@ -53,9 +124,10 @@ export default function LostDetailPage() {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-8" aria-live="polite" aria-busy="true">
         <div className="h-9 w-40 rounded bg-slate-200 animate-pulse mb-4" />
         <div className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
+        <CenterLoading />
       </div>
     );
   }
@@ -136,10 +208,12 @@ export default function LostDetailPage() {
         <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
           <div className="sm:col-span-4 rounded-2xl overflow-hidden bg-slate-100 border border-slate-100">
             {cover ? (
-              <img
+              <ImageWithSpinner
                 src={cover}
                 alt={item.name}
-                className="w-full h-[260px] sm:h-[360px] object-cover"
+                className="w-full h-[260px] sm:h-[360px]"
+                imgClass="w-full h-full object-cover"
+                spinnerClass="text-slate-400"
               />
             ) : (
               <div className="h-[260px] sm:h-[360px] grid place-items-center text-slate-400">
@@ -153,10 +227,12 @@ export default function LostDetailPage() {
                 key={i}
                 className="rounded-xl overflow-hidden bg-slate-100 border border-slate-100"
               >
-                <img
+                <ImageWithSpinner
                   src={src}
                   alt={`photo-${i + 1}`}
-                  className="w-full h-28 object-cover"
+                  className="w-full h-28"
+                  imgClass="w-full h-full object-cover"
+                  spinnerClass="text-slate-400"
                 />
               </div>
             ))}
@@ -195,10 +271,12 @@ export default function LostDetailPage() {
             <h3 className="text-lg font-bold text-blue-900">ผู้แจ้งพบ</h3>
             <div className="mt-4 flex items-center gap-3">
               {item.createdBy?.avatarUrl ? (
-                <img
+                <ImageWithSpinner
                   src={item.createdBy.avatarUrl}
                   alt={reporterName}
-                  className="h-12 w-12 rounded-full object-cover ring-2 ring-blue-100"
+                  className="h-12 w-12"
+                  imgClass="h-12 w-12 rounded-full object-cover ring-2 ring-blue-100"
+                  spinnerClass="text-slate-400"
                 />
               ) : (
                 <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white grid place-items-center text-sm font-bold ring-2 ring-blue-100">

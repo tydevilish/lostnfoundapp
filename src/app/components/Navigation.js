@@ -3,12 +3,42 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+/* Spinner (หมุน ๆ) */
+function Spinner({ size = 16, className = "" }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
+
 export default function Navigation() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
+  const [avatarReady, setAvatarReady] = useState(false); // เดสก์ท็อป
+  const [avatarReadyM, setAvatarReadyM] = useState(false); // มือถือ
   const menuRef = useRef(null);
 
   // ✅ กันคำไทยตกลำดับบรรทัด
@@ -33,7 +63,8 @@ export default function Navigation() {
 
   useEffect(() => {
     const onClick = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+      if (menuRef.current && !menuRef.current.contains(e.target))
+        setMenuOpen(false);
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
@@ -65,21 +96,33 @@ export default function Navigation() {
           {/* Left */}
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-3">
-              <img src="/logo/logo.png" alt="logo" className="h-18 w-auto" />
+              <img src="/logo/logo.png" alt="logo" className="h-19 w-auto" />
             </Link>
 
             {/* Desktop menu */}
             <div className="hidden md:flex items-center">
-              <Link href="/" className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+              <Link
+                href="/"
+                className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+              >
                 หน้าแรก
               </Link>
-              <Link href="/found" className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+              <Link
+                href="/found"
+                className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+              >
                 แจ้งพบของ
               </Link>
-              <Link href="/lost" className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+              <Link
+                href="/lost"
+                className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+              >
                 ตรวจสอบของหาย
               </Link>
-              <Link href="/messages" className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}>
+              <Link
+                href="/messages"
+                className={`rounded-full text-blue-900 px-4 py-2 text-md font-medium transition hover:text-yellow-400 ${NO_WRAP}`}
+              >
                 การพูดคุย
               </Link>
             </div>
@@ -88,7 +131,15 @@ export default function Navigation() {
           {/* Right (Desktop) */}
           <div className="hidden md:flex items-center gap-3">
             {checking ? (
-              <div className="h-9 w-36 rounded-full bg-slate-200/60 animate-pulse" />
+              /* แสดงหมุน ๆ ระหว่างตรวจสอบสถานะผู้ใช้ */
+              <div
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-3 py-2 shadow-sm"
+                aria-live="polite"
+                aria-busy="true"
+              >
+                <Spinner className="text-blue-900" />
+                <span className="text-sm text-slate-600">กำลังตรวจสอบ…</span>
+              </div>
             ) : user ? (
               <div className="relative" ref={menuRef}>
                 <button
@@ -97,37 +148,86 @@ export default function Navigation() {
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                 >
-                  {user.avatarUrl ? (
-                    <img src={user.avatarUrl} alt="avatar" className="h-9 w-9 rounded-full object-cover ring-2 ring-blue-200" />
-                  ) : (
-                    <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white grid place-items-center ring-2 ring-blue-200">
-                      <span className="text-sm font-bold">{initials(user.firstName, user.lastName)}</span>
-                    </div>
-                  )}
-
-                  <div className="hidden sm:flex flex-col items-start leading-tight mr-1">
-                    <span className={`text-blue-900 text-sm font-semibold truncate max-w-[160px] ${NO_WRAP}`}>
-                      {user.firstName} {user.lastName}
-                    </span>
-                    <span className={`text-xs text-slate-500 -mt-0.5 ${NO_WRAP}`}>บัญชีของฉัน</span>
+                  <div className="relative h-9 w-9">
+                    {user.avatarUrl ? (
+                      <>
+                        {!avatarReady && (
+                          <div className="absolute inset-0 grid place-items-center">
+                            <Spinner className="text-slate-400" />
+                          </div>
+                        )}
+                        <img
+                          src={user.avatarUrl}
+                          alt="avatar"
+                          loading="lazy"
+                          decoding="async"
+                          onLoad={() => setAvatarReady(true)}
+                          className={`h-9 w-9 rounded-full object-cover ring-2 ring-blue-200 transition-opacity duration-300 ${
+                            avatarReady ? "opacity-100" : "opacity-0"
+                          }`}
+                        />
+                      </>
+                    ) : (
+                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white grid place-items-center ring-2 ring-blue-200">
+                        <span className="text-sm font-bold">
+                          {initials(user.firstName, user.lastName)}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  <svg width="18" height="18" viewBox="0 0 24 24" className={`text-slate-500 transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`}>
-                    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+                  <div className="hidden sm:flex flex-col items-start leading-tight mr-1">
+                    <span
+                      className={`text-blue-900 text-sm font-semibold truncate max-w-[160px] ${NO_WRAP}`}
+                    >
+                      {user.firstName} {user.lastName}
+                    </span>
+                    <span
+                      className={`text-xs text-slate-500 -mt-0.5 ${NO_WRAP}`}
+                    >
+                      บัญชีของฉัน
+                    </span>
+                  </div>
+
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    className={`text-slate-500 transition-transform duration-200 ${
+                      menuOpen ? "rotate-180" : ""
+                    }`}
+                  >
+                    <path
+                      d="M6 9l6 6 6-6"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      fill="none"
+                    />
                   </svg>
                 </button>
 
                 <div
                   role="menu"
                   className={`absolute right-0 mt-2 w-72 origin-top-right rounded-xl border border-slate-200 bg-white/95 backdrop-blur shadow-xl p-2 transition-all duration-150
-                              ${menuOpen ? "opacity-100 scale-100" : "pointer-events-none opacity-0 scale-95"}`}
+                              ${
+                                menuOpen
+                                  ? "opacity-100 scale-100"
+                                  : "pointer-events-none opacity-0 scale-95"
+                              }`}
                 >
                   <span className="absolute -top-2 right-8 block w-3 h-3 bg-white border-l border-t border-slate-200 rotate-45" />
                   <div className="px-3 py-2">
-                    <div className={`text-sm font-semibold text-blue-900 ${NO_WRAP}`}>
+                    <div
+                      className={`text-sm font-semibold text-blue-900 ${NO_WRAP}`}
+                    >
                       {user.firstName} {user.lastName}
                     </div>
-                    <div className={`text-xs text-slate-500 truncate ${NO_WRAP}`}>{user.email}</div>
+                    <div
+                      className={`text-xs text-slate-500 truncate ${NO_WRAP}`}
+                    >
+                      {user.email}
+                    </div>
                   </div>
                   <div className="my-1 h-px bg-slate-100" />
                   <Link
@@ -137,8 +237,20 @@ export default function Navigation() {
                     className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-blue-900 hover:bg-blue-50 focus:bg-blue-50 focus:outline-none ${NO_WRAP}`}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24">
-                      <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="1.8" fill="none" />
-                      <path d="M4 20c1.5-3.2 4.6-5 8-5s6.5 1.8 8 5" stroke="currentColor" strokeWidth="1.8" fill="none" />
+                      <circle
+                        cx="12"
+                        cy="8"
+                        r="4"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        fill="none"
+                      />
+                      <path
+                        d="M4 20c1.5-3.2 4.6-5 8-5s6.5 1.8 8 5"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        fill="none"
+                      />
                     </svg>
                     ข้อมูลส่วนตัว
                   </Link>
@@ -148,8 +260,19 @@ export default function Navigation() {
                     className={`mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 focus:bg-red-50 focus:outline-none ${NO_WRAP}`}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24">
-                      <path d="M10 12h9m0 0-3-3m3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
-                      <path d="M4 5a2 2 0 0 1 2-2h4m0 0h0v18h0M6 21a2 2 0 0 1-2-2V5" stroke="currentColor" strokeWidth="1.8" fill="none" />
+                      <path
+                        d="M10 12h9m0 0-3-3m3 3-3 3"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        fill="none"
+                      />
+                      <path
+                        d="M4 5a2 2 0 0 1 2-2h4m0 0h0v18h0M6 21a2 2 0 0 1-2-2V5"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        fill="none"
+                      />
                     </svg>
                     ออกจากระบบ
                   </button>
@@ -179,19 +302,34 @@ export default function Navigation() {
             onClick={() => setOpen((v) => !v)}
             className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-blue-900 hover:bg-blue-50"
             aria-label="Toggle menu"
+            aria-expanded={open}
           >
             <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
               {open ? (
-                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path
+                  d="M18 6L6 18M6 6l12 12"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               ) : (
-                <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path
+                  d="M4 6h16M4 12h16M4 18h16"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               )}
             </svg>
           </button>
         </div>
 
         {/* Mobile menu panel */}
-        <div className={`md:hidden transition-all duration-300 overflow-hidden ${open ? "max-h-96 opacity-100" : "max-h-0 opacity-0"}`}>
+        <div
+          className={`md:hidden transition-all duration-300 overflow-hidden ${
+            open ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+          }`}
+        >
           <div className="pb-4 flex flex-col gap-2">
             <Link
               href="/"
@@ -224,26 +362,53 @@ export default function Navigation() {
 
             {/* โปรไฟล์ในมือถือ */}
             {checking ? (
-              <div className="mt-2 h-10 rounded-xl bg-slate-200/60 animate-pulse" />
+              <div
+                className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 bg-white/70"
+                aria-live="polite"
+                aria-busy="true"
+              >
+                <Spinner className="text-blue-900" />
+                <span className="text-sm text-slate-600">กำลังตรวจสอบ…</span>
+              </div>
             ) : user ? (
               <>
                 <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-200 p-3">
-                  {user.avatarUrl ? (
-                    <img
-                      src={user.avatarUrl}
-                      alt="avatar"
-                      className="h-10 w-10 rounded-full object-cover ring-2 ring-blue-200"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white flex items-center justify-center ring-2 ring-blue-200 text-sm font-bold">
-                      {initials(user.firstName, user.lastName)}
-                    </div>
-                  )}
+                  <div className="relative h-10 w-10">
+                    {user.avatarUrl ? (
+                      <>
+                        {!avatarReadyM && (
+                          <div className="absolute inset-0 grid place-items-center">
+                            <Spinner className="text-slate-400" />
+                          </div>
+                        )}
+                        <img
+                          src={user.avatarUrl}
+                          alt="avatar"
+                          loading="lazy"
+                          decoding="async"
+                          onLoad={() => setAvatarReadyM(true)}
+                          className={`h-10 w-10 rounded-full object-cover ring-2 ring-blue-200 transition-opacity duration-300 ${
+                            avatarReadyM ? "opacity-100" : "opacity-0"
+                          }`}
+                        />
+                      </>
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-900 to-blue-700 text-white flex items-center justify-center ring-2 ring-blue-200 text-sm font-bold">
+                        {initials(user.firstName, user.lastName)}
+                      </div>
+                    )}
+                  </div>
                   <div className="min-w-0">
-                    <div className={`text-sm font-semibold text-blue-900 truncate ${NO_WRAP}`}>
+                    <div
+                      className={`text-sm font-semibold text-blue-900 truncate ${NO_WRAP}`}
+                    >
                       {user.firstName} {user.lastName}
                     </div>
-                    <div className={`text-xs text-slate-500 truncate ${NO_WRAP}`}>{user.email}</div>
+                    <div
+                      className={`text-xs text-slate-500 truncate ${NO_WRAP}`}
+                    >
+                      {user.email}
+                    </div>
                   </div>
                 </div>
                 <Link

@@ -6,6 +6,80 @@ import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
+/* ========== UI helpers: Spinner / Center overlay / Lazy image ========== */
+function Spinner({ size = 18, className = "" }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
+function CenterLoading({ label = "กำลังโหลดข้อมูล..." }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div className="rounded-xl bg-white/90 backdrop-blur px-4 py-3 border border-slate-200 shadow">
+        <div className="flex items-center gap-2 text-slate-700">
+          <Spinner className="text-blue-700" />
+          <span className="font-medium">{label}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+function ImageWithSpinner({
+  src,
+  alt = "",
+  className = "",
+  imgClass = "",
+  spinnerClass = "text-slate-400",
+  onLoad,
+  ...rest
+}) {
+  const [ready, setReady] = useState(false);
+  return (
+    <div className={`relative ${className}`}>
+      {!ready && (
+        <div className="absolute inset-0 grid place-items-center">
+          <Spinner className={spinnerClass} />
+        </div>
+      )}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onLoad={(e) => {
+          setReady(true);
+          onLoad?.(e);
+        }}
+        className={`transition-opacity duration-300 ${
+          ready ? "opacity-100" : "opacity-0"
+        } ${imgClass}`}
+        {...rest}
+      />
+    </div>
+  );
+}
+
 /** อีโมจิยอดฮิต (เพิ่มจากของเดิม + จัดหมวด) */
 const EMOJI_SMILEYS = [
   "😀",
@@ -107,7 +181,6 @@ async function compressImages(files, { maxSide = 1600, quality = 0.8 } = {}) {
   }
   return results; // [{file, url}]
 }
-
 function fileToDataURL(file) {
   return new Promise((res, rej) => {
     const r = new FileReader();
@@ -116,7 +189,6 @@ function fileToDataURL(file) {
     r.readAsDataURL(file);
   });
 }
-
 function resizeDataURL(dataUrl, { maxSide = 1600, quality = 0.8 } = {}) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -334,7 +406,6 @@ export default function ConversationPage() {
             return next;
           });
           lastEventRef.current = Date.now();
-          // ถ้ามาจากฝั่งตรงข้ามและเราอยู่ก้น → read
           scheduleRead({ force: false });
           ensureVisible(msg.senderId === meId);
         }
@@ -399,7 +470,6 @@ export default function ConversationPage() {
             const merged = mergeMessagesUnique(arr, data.messages);
             const last = data.messages[data.messages.length - 1];
             lastTsRef.current = last?.createdAt || lastTsRef.current;
-            // หลังอัปเดต ลองอ่านถ้าอยู่ก้น
             setTimeout(
               () => scheduleRead({ force: gotMine ? true : false }),
               0
@@ -656,11 +726,14 @@ export default function ConversationPage() {
     };
   }, []);
 
+  // ====== RENDER ======
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      <div className="relative max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="h-8 w-48 bg-slate-200 rounded animate-pulse mb-4" />
         <div className="h-[60vh] bg-slate-100 rounded-2xl animate-pulse" />
+        {/* 🔵 ให้เห็นชัดว่ากำลังโหลด */}
+        <CenterLoading label="กำลังโหลดห้องสนทนา..." />
       </div>
     );
   }
@@ -707,9 +780,10 @@ export default function ConversationPage() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
         <div
           ref={scrollerRef}
-          className="h-[62vh] sm:h-[68vh] overflow-y-auto rounded-2xl border border-slate-100 bg-white p-4"
+          className="relative h-[62vh] sm:h-[68vh] overflow-y-auto rounded-2xl border border-slate-100 bg-white p-4"
           style={{ scrollBehavior: "auto" }}
           onScroll={() => scheduleRead({ force: false })}
+          aria-live="polite"
         >
           {messages.length === 0 ? (
             <div className="h-full grid place-items-center text-slate-500">
@@ -759,19 +833,25 @@ export default function ConversationPage() {
                           {m.text}
                         </div>
                       )}
+
                       {!!imgs.length && (
                         <div className="mt-1 grid grid-cols-2 gap-2">
                           {imgs.map((src, j) => (
-                            <img
+                            <ImageWithSpinner
                               key={j}
                               src={src}
                               alt={`img-${j}`}
-                              className="rounded-lg object-cover w-full h-32"
+                              className="w-full h-32"
+                              imgClass="rounded-lg object-cover w-full h-32"
+                              spinnerClass={
+                                mine ? "text-white/70" : "text-slate-400"
+                              }
                               onLoad={handleImgLoad}
                             />
                           ))}
                         </div>
                       )}
+
                       <div
                         className={`${
                           mine ? "text-white/70" : "text-slate-500"
@@ -789,7 +869,7 @@ export default function ConversationPage() {
                             mine ? "text-white/80" : "text-slate-500"
                           } text-[11px] mt-0.5 flex items-center gap-1`}
                         >
-                          <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse" />
+                          <Spinner size={12} className="opacity-90" />
                           กำลังส่ง…
                         </div>
                       )}
@@ -828,10 +908,11 @@ export default function ConversationPage() {
             <div className="mb-3 grid grid-cols-3 sm:grid-cols-6 gap-2">
               {previews.map((src, i) => (
                 <div key={i} className="relative">
-                  <img
+                  <ImageWithSpinner
                     src={src}
                     alt={`p-${i}`}
-                    className="w-full h-24 object-cover rounded-lg border"
+                    className="w-full h-24"
+                    imgClass="w-full h-24 object-cover rounded-lg border"
                   />
                   <button
                     className="absolute -top-2 -right-2 bg-white text-red-500 rounded-full shadow px-1.5 text-xs"
@@ -846,7 +927,7 @@ export default function ConversationPage() {
 
           {compressing && (
             <div className="mb-2 text-xs text-slate-500 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" />{" "}
+              <Spinner size={12} className="text-slate-400" />
               กำลังลดขนาดรูป…
             </div>
           )}
@@ -896,20 +977,22 @@ export default function ConversationPage() {
   );
 }
 
-/* ===== Avatar + Emoji (ใหม่: สวยขึ้น, ไม่ซ้อน, ค้นหา/ล่าสุด) ===== */
+/* ===== Avatar + Emoji (ปรับให้ใช้ Lazy + Spinner เฉพาะภาพ) ===== */
 
 function AvatarCircle({ user, size = 36 }) {
   const url = user?.avatarUrl;
   const initials = (user?.firstName?.[0] || "") + (user?.lastName?.[0] || "");
   return url ? (
-    <img
+    <ImageWithSpinner
       src={url}
       alt={
         user
           ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
           : "avatar"
       }
-      className="rounded-full object-cover border border-slate-200 shadow-sm"
+      className=""
+      imgClass="rounded-full object-cover border border-slate-200 shadow-sm"
+      spinnerClass="text-slate-300"
       style={{ width: size, height: size }}
     />
   ) : (
@@ -980,9 +1063,7 @@ function EmojiPicker({ onPick }) {
     if (!open) {
       updatePosition();
       setOpen(true);
-    } else {
-      setOpen(false);
-    }
+    } else setOpen(false);
   };
 
   const filtered = (
@@ -1001,36 +1082,66 @@ function EmojiPicker({ onPick }) {
 
   return (
     <>
-      <button
-        ref={btnRef}
-        onClick={toggle}
-        className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-        aria-label="เลือกอีโมจิ"
-      >
-        😊
-      </button>
-
-      {open &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[100]"
-            onMouseDown={() => setOpen(false)}
-          >
+      <div className="relative">
+        <button
+          ref={btnRef}
+          onClick={toggle}
+          className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+          aria-label="เลือกอีโมจิ"
+          title="เลือกอีโมจิ"
+        >
+          😊
+        </button>
+        {/* ช่องค้นหาเล็ก ๆ บนป็อปโอเวอร์ */}
+        {open &&
+          typeof document !== "undefined" &&
+          createPortal(
             <div
-              className="absolute bg-white border border-slate-200 rounded-2xl shadow-2xl p-2 w-[300px]"
-              style={{ top: pos.top, left: pos.left }}
-              onMouseDown={(e) => e.stopPropagation()}
+              className="fixed inset-0 z-[100]"
+              onMouseDown={() => setOpen(false)}
             >
-              {!!recent.length && !query && (
-                <>
-                  <div className="px-2 text-[11px] text-slate-500 mb-1">
-                    ใช้บ่อย
-                  </div>
-                  <div className="grid grid-cols-8 gap-1 px-2 mb-2">
-                    {recent.map((e, i) => (
+              <div
+                className="absolute bg-white border border-slate-200 rounded-2xl shadow-2xl p-2 w-[300px]"
+                style={{ top: pos.top, left: pos.left }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="px-2">
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="ค้นหาอีโมจิ…"
+                    className="w-full mb-2 rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-200"
+                  />
+                </div>
+
+                {!!recent.length && !query && (
+                  <>
+                    <div className="px-2 text-[11px] text-slate-500 mb-1">
+                      ใช้บ่อย
+                    </div>
+                    <div className="grid grid-cols-8 gap-1 px-2 mb-2">
+                      {recent.map((e, i) => (
+                        <button
+                          key={`r-${i}`}
+                          className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
+                          onClick={() => pick(e)}
+                          title={e}
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <div className="px-2 text-[11px] text-slate-500 mb-1">
+                  {query ? "ผลลัพธ์" : "ทั้งหมด"}
+                </div>
+                <div className="max-h-[220px] overflow-y-auto px-2 pb-2">
+                  <div className="grid grid-cols-8 gap-1">
+                    {filtered.map((e, i) => (
                       <button
-                        key={`r-${i}`}
+                        key={`a-${i}`}
                         className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
                         onClick={() => pick(e)}
                         title={e}
@@ -1039,30 +1150,12 @@ function EmojiPicker({ onPick }) {
                       </button>
                     ))}
                   </div>
-                </>
-              )}
-
-              <div className="px-2 text-[11px] text-slate-500 mb-1">
-                {query ? "ผลลัพธ์" : "ทั้งหมด"}
-              </div>
-              <div className="max-h-[220px] overflow-y-auto px-2 pb-2">
-                <div className="grid grid-cols-8 gap-1">
-                  {filtered.map((e, i) => (
-                    <button
-                      key={`a-${i}`}
-                      className="text-2xl leading-none hover:bg-slate-100 rounded p-1"
-                      onClick={() => pick(e)}
-                      title={e}
-                    >
-                      {e}
-                    </button>
-                  ))}
                 </div>
               </div>
-            </div>
-          </div>,
-          document.body
-        )}
+            </div>,
+            document.body
+          )}
+      </div>
     </>
   );
 }
