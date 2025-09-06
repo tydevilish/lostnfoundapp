@@ -1050,15 +1050,6 @@ function DateInput({ id, value, onChange }) {
                    px-3 py-2.5 text-black appearance-none
                    [color-scheme:light]" // กัน iOS ดาร์กโหมด invert สี
       />
-      {/* iOS Safari cosmetics */}
-      <style jsx>{`
-        /* ทำให้ค่าที่แสดงในช่องจัดชิดซ้าย และลดเงา/พื้นหลังพิเศษของ iOS */
-        input::-webkit-date-and-time-value { text-align: left; }
-        input::-webkit-datetime-edit,
-        input::-webkit-date-and-time-value,
-        input::-webkit-inner-spin-button { background: transparent; }
-        input::-webkit-calendar-picker-indicator { opacity: .8; }
-      `}</style>
     </div>
   );
 }
