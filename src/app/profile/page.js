@@ -1,3 +1,4 @@
+// app/profile/page.jsx
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -6,7 +7,7 @@ export default function Profile() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState(null); // {type:'success'|'error', text:string}
+  const [msg, setMsg] = useState(null); // {type:'success'|'error', text}
   const [user, setUser] = useState(null);
   const [preview, setPreview] = useState(null);
   const fileRef = useRef(null);
@@ -14,10 +15,13 @@ export default function Profile() {
   const fetchMe = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/me", { cache: "no-store" });
+      const res = await fetch("/api/auth/me", {
+        cache: "no-store",
+        credentials: "include",
+      });
       if (!res.ok) return router.replace("/signin");
-      const data = await res.json();
-      setUser(data.user);
+      const data = await res.json().catch(() => ({}));
+      setUser(data?.user || null);
     } finally {
       setLoading(false);
     }
@@ -28,26 +32,25 @@ export default function Profile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // cleanup preview URL
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (preview) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
+    },
+    [preview]
+  );
 
   const onChange = (e) => {
     const { id, value } = e.target;
     setUser((u) => ({ ...u, [id]: value }));
   };
 
-  // ---- บันทึกครั้งเดียว: อัปโหลดรูป (ถ้ามี) + อัปเดตโปรไฟล์ ----
+  // บันทึก: อัปโหลดรูป (ถ้ามี) + อัปเดตโปรไฟล์
   const saveProfile = async () => {
     setMsg(null);
     setSaving(true);
     try {
       const hasNewAvatar = !!fileRef.current?.files?.[0];
 
-      // 1) อัปโหลดรูปก่อน (ถ้ามี)
       if (hasNewAvatar) {
         const form = new FormData();
         form.append("file", fileRef.current.files[0]);
@@ -59,11 +62,9 @@ export default function Profile() {
         if (!upRes.ok || upData?.success === false) {
           throw new Error(upData?.message || "อัปโหลดรูปไม่สำเร็จ");
         }
-        // sync user (จะมี avatarUrl ล่าสุด)
-        setUser((u) => ({ ...u, ...upData.user }));
+        setUser((u) => ({ ...u, ...upData.user })); // sync avatarUrl (data URL)
       }
 
-      // 2) อัปเดตข้อมูลโปรไฟล์
       const res = await fetch("/api/user/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -125,17 +126,14 @@ export default function Profile() {
   return (
     <div className="min-h-[80vh] bg-gradient-to-b from-yellow-100/50 to-white">
       {/* cover */}
-      <div className="h-36 sm:h-44 bg-gradient-to-r from-blue-900  to-blue-700 relative">
+      <div className="h-36 sm:h-44 bg-gradient-to-r from-blue-900 to-blue-700 relative">
         <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_20%,white_0,transparent_40%),radial-gradient(circle_at_80%_30%,white_0,transparent_40%)]" />
       </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 -mt-16 sm:-mt-20 pb-16">
-        {/* card */}
         <div className="relative bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-slate-100 p-6 sm:p-8">
-          {/* header row: avatar + title */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-5">
             <div className="relative shrink-0">
-              {/* avatar */}
               {preview ? (
                 <img
                   src={preview}
@@ -154,7 +152,6 @@ export default function Profile() {
                 </div>
               )}
 
-              {/* camera button */}
               <button
                 onClick={() => fileRef.current?.click()}
                 className="absolute -bottom-1 -right-1 h-10 w-10 rounded-full text-black bg-white shadow ring-1 ring-slate-200 grid place-items-center hover:bg-blue-50 transition"
@@ -180,7 +177,6 @@ export default function Profile() {
                 แก้ไขข้อมูลส่วนตัวและเพิ่มรูปโปรไฟล์ของคุณ
               </p>
 
-              {/* avatar actions */}
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   onClick={() => fileRef.current?.click()}
@@ -197,7 +193,6 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* message banner */}
           {msg && (
             <div
               className={[
@@ -211,7 +206,6 @@ export default function Profile() {
             </div>
           )}
 
-          {/* form */}
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="ชื่อ" htmlFor="firstName">
               <InputIconLeft
@@ -259,7 +253,6 @@ export default function Profile() {
             </Field>
           </div>
 
-          {/* actions */}
           <div className="mt-8 flex items-center justify-end gap-3">
             <button
               type="button"
