@@ -327,11 +327,11 @@ export default function Signup() {
           {step < 3 && (
             <p className="text-center text-xs text-slate-500 mt-4">
               การสมัครหมายถึงคุณยอมรับ{" "}
-              <Link href="/terms" className="underline hover:text-blue-800">
+              <Link href="#" className="underline hover:text-blue-800">
                 เงื่อนไขการใช้งาน
               </Link>{" "}
               และ{" "}
-              <Link href="/privacy" className="underline hover:text-blue-800">
+              <Link href="#" className="underline hover:text-blue-800">
                 นโยบายความเป็นส่วนตัว
               </Link>
             </p>

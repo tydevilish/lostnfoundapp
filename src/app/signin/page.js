@@ -138,10 +138,13 @@ export default function Signin() {
                   จำฉันไว้
                 </label>
                 <Link
-                  href="/forgot"
+                  href="#"
                   className="text-sm text-blue-800 hover:underline"
                 >
-                  ลืมรหัสผ่าน?
+                  ลืมรหัสผ่าน ?{" "}
+                  <span className="text-gray-900 text-sm bold">
+                    ติดต่อผู้ดูแลระบบ
+                  </span>
                 </Link>
               </div>
               {!!form.password && !pwdOk && (
