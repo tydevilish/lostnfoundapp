@@ -1,3 +1,4 @@
+// app/found/page.jsx
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -510,7 +511,7 @@ function EmptyState({ onAdd }) {
   );
 }
 
-/* ---------- FilterPanel ---------- */
+/* ---------- FilterPanel (แก้ iOS date overlap) ---------- */
 function FilterPanel({ filters, setFilters, compact = false }) {
   return (
     <div className={`bg-white/90 backdrop-blur rounded-2xl shadow-sm border border-slate-100 ${compact ? "" : "p-4 sm:p-5"} p-4`}>
@@ -565,16 +566,21 @@ function FilterPanel({ filters, setFilters, compact = false }) {
           <option value="resolved">ส่งคืนแล้ว</option>
         </Select>
 
-        <div className="grid grid-cols-2 gap-2">
+        {/* จาก/ถึง — ใช้ DateInput เพื่อกันกรอบซ้อน iOS + ชิดซ้าย */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="จาก">
-            <input type="date" value={filters.from}
-                   onChange={(e)=>setFilters((f)=>({ ...f, from:e.target.value }))}
-                   className="w-full text-black rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-200" />
+            <DateInput
+              id="from"
+              value={filters.from}
+              onChange={(e)=>setFilters((f)=>({ ...f, from: e.target.value }))}
+            />
           </Field>
           <Field label="ถึง">
-            <input type="date" value={filters.to}
-                   onChange={(e)=>setFilters((f)=>({ ...f, to:e.target.value }))}
-                   className="w-full text-black rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-200" />
+            <DateInput
+              id="to"
+              value={filters.to}
+              onChange={(e)=>setFilters((f)=>({ ...f, to: e.target.value }))}
+            />
           </Field>
         </div>
 
@@ -658,4 +664,29 @@ function formatDate(d) {
     const dt = new Date(d);
     return dt.toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
   } catch { return d; }
+}
+
+/* ---------- iOS-friendly Date input ---------- */
+function DateInput({ id, value, onChange }) {
+  return (
+    <div className="relative rounded-xl ring-1 ring-slate-300 bg-white
+                    focus-within:ring-2 focus-within:ring-blue-900 overflow-hidden">
+      <input
+        id={id}
+        type="date"
+        value={value}
+        onChange={onChange}
+        className="block w-full border-0 outline-none ring-0 bg-transparent
+                   px-3 py-2.5 text-black appearance-none
+                   [color-scheme:light]"
+      />
+      <style jsx>{`
+        input::-webkit-date-and-time-value { text-align: left; }
+        input::-webkit-datetime-edit,
+        input::-webkit-date-and-time-value,
+        input::-webkit-inner-spin-button { background: transparent; }
+        input::-webkit-calendar-picker-indicator { opacity: .8; }
+      `}</style>
+    </div>
+  );
 }
