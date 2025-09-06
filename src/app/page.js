@@ -7,14 +7,29 @@ import { useEffect, useMemo, useState } from "react";
 
 /* ========= Static options ========= */
 const CATEGORY_OPTIONS = [
-  "กระเป๋าสตางค์","โทรศัพท์มือถือ","กุญแจ","บัตร/เอกสารสำคัญ",
-  "อิเล็กทรอนิกส์","กระเป๋า/เป้","เครื่องประดับ","เสื้อผ้า/หมวก",
-  "สัตว์เลี้ยง","อื่น ๆ",
+  "กระเป๋าสตางค์",
+  "โทรศัพท์มือถือ",
+  "กุญแจ",
+  "บัตร/เอกสารสำคัญ",
+  "อิเล็กทรอนิกส์",
+  "กระเป๋า/เป้",
+  "เครื่องประดับ",
+  "เสื้อผ้า/หมวก",
+  "สัตว์เลี้ยง",
+  "อื่น ๆ",
 ];
 const PLACE_OPTIONS = [
-  "The Park In Market","Laemtong","Best Soup","Institute of Marine Science",
-  "Wanna Park","Piboonbumpen Demonstration School","Wonnapha Beach",
-  "Bang Saen Beach","Khao Sam Mook","Lame Thaen","อื่น ๆ",
+  "The Park In Market",
+  "Laemtong",
+  "Best Soup",
+  "Institute of Marine Science",
+  "Wanna Park",
+  "Piboonbumpen Demonstration School",
+  "Wonnapha Beach",
+  "Bang Saen Beach",
+  "Khao Sam Mook",
+  "Lame Thaen",
+  "อื่น ๆ",
 ];
 
 /* ใช้รูปเดียวเป็นพื้นหลัง hero */
@@ -23,8 +38,14 @@ const HERO_IMG = "/lost.jpg";
 /* ========= helpers ========= */
 const fmt = (d) => {
   if (!d) return "-";
-  try { return new Date(d).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }); }
-  catch { return d; }
+  try {
+    return new Date(d).toLocaleString("th-TH", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return d;
+  }
 };
 const uniqTop = (arr, key, n = 8) => {
   const cnt = new Map();
@@ -33,10 +54,17 @@ const uniqTop = (arr, key, n = 8) => {
     if (!v) return;
     cnt.set(v, (cnt.get(v) || 0) + 1);
   });
-  return [...cnt.entries()].sort((a,b)=>b[1]-a[1]).slice(0, n).map(([name, count]) => ({ name, count }));
+  return [...cnt.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([name, count]) => ({ name, count }));
 };
-const initials = (name="") =>
-  (name.split(" ").map(s => s[0]?.toUpperCase() || "").slice(0,2).join("")) || "U";
+const initials = (name = "") =>
+  name
+    .split(" ")
+    .map((s) => s[0]?.toUpperCase() || "")
+    .slice(0, 2)
+    .join("") || "U";
 
 export default function Home() {
   const router = useRouter();
@@ -61,9 +89,16 @@ export default function Home() {
       setFoundNeedsLogin(false);
 
       const grab = async (url) => {
-        const res = await fetch(url, { cache: "no-store", credentials: "include" });
-        const data = await res.json().catch(()=>({}));
-        return { ok: res.ok, status: res.status, items: Array.isArray(data?.items) ? data.items : [] };
+        const res = await fetch(url, {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const data = await res.json().catch(() => ({}));
+        return {
+          ok: res.ok,
+          status: res.status,
+          items: Array.isArray(data?.items) ? data.items : [],
+        };
       };
 
       const [lostR, foundR] = await Promise.allSettled([
@@ -73,21 +108,36 @@ export default function Home() {
 
       if (!alive) return;
 
-      const L = lostR.status === "fulfilled" ? lostR.value : { ok:false, status:0, items:[] };
-      const F = foundR.status === "fulfilled" ? foundR.value : { ok:false, status:0, items:[] };
+      const L =
+        lostR.status === "fulfilled"
+          ? lostR.value
+          : { ok: false, status: 0, items: [] };
+      const F =
+        foundR.status === "fulfilled"
+          ? foundR.value
+          : { ok: false, status: 0, items: [] };
 
       setLost(L.items);
       setFound(F.items);
 
-      if (!F.ok && (F.status === 401 || F.status === 403)) setFoundNeedsLogin(true);
+      if (!F.ok && (F.status === 401 || F.status === 403))
+        setFoundNeedsLogin(true);
 
       setLoading(false);
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const topCategories = useMemo(() => uniqTop([...lost, ...found], "category", 8), [lost, found]);
-  const topPlaces = useMemo(() => uniqTop([...lost, ...found], "place", 8), [lost, found]);
+  const topCategories = useMemo(
+    () => uniqTop([...lost, ...found], "category", 8),
+    [lost, found]
+  );
+  const topPlaces = useMemo(
+    () => uniqTop([...lost, ...found], "place", 8),
+    [lost, found]
+  );
 
   // helper: พาไปหน้า /lost พร้อมพารามิเตอร์แบบ GET
   const goLost = (params = {}) => {
@@ -101,16 +151,21 @@ export default function Home() {
     if (qv?.trim()) qs.set("q", qv.trim());
     if (cat) {
       qs.set("category", cat);
-      if (cat === "อื่น ๆ" && catOther?.trim()) qs.set("categoryOther", catOther.trim());
+      if (cat === "อื่น ๆ" && catOther?.trim())
+        qs.set("categoryOther", catOther.trim());
     }
     if (plc) {
       qs.set("place", plc);
-      if (plc === "อื่น ๆ" && plcOther?.trim()) qs.set("placeOther", plcOther.trim());
+      if (plc === "อื่น ๆ" && plcOther?.trim())
+        qs.set("placeOther", plcOther.trim());
     }
     router.push(`/lost${qs.toString() ? `?${qs.toString()}` : ""}`);
   };
 
-  const submit = (e) => { e?.preventDefault?.(); goLost(); };
+  const submit = (e) => {
+    e?.preventDefault?.();
+    goLost();
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
@@ -133,7 +188,8 @@ export default function Home() {
               หาเจอไว <span className="text-blue-200">คืนเจ้าของไว</span>
             </h1>
             <p className="text-lg text-blue-100/90 max-w-2xl mx-auto">
-              ค้นหาของหาย และติดต่อกันได้ทันที ช่วยให้ของกลับคืนสู่เจ้าของอย่างรวดเร็ว
+              ค้นหาของหาย และติดต่อกันได้ทันที
+              ช่วยให้ของกลับคืนสู่เจ้าของอย่างรวดเร็ว
             </p>
           </div>
 
@@ -148,27 +204,43 @@ export default function Home() {
                   placeholder="ค้นหาชื่อของหรือรายละเอียด..."
                   className="w-full px-4 py-3 text-lg border border-slate-300 rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 text-slate-800 placeholder-slate-400"
                 />
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">🔎</div>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                  🔎
+                </div>
               </div>
 
               {/* ตัวกรอง */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <select
                   value={category}
-                  onChange={(e) => { setCategory(e.target.value); setCategoryOther(""); }}
+                  onChange={(e) => {
+                    setCategory(e.target.value);
+                    setCategoryOther("");
+                  }}
                   className="px-4 py-3 border border-slate-300 rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 text-slate-700"
                 >
                   <option value="">ทุกประเภท</option>
-                  {CATEGORY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                  {CATEGORY_OPTIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
 
                 <select
                   value={place}
-                  onChange={(e) => { setPlace(e.target.value); setPlaceOther(""); }}
+                  onChange={(e) => {
+                    setPlace(e.target.value);
+                    setPlaceOther("");
+                  }}
                   className="px-4 py-3 border border-slate-300 rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 text-slate-700"
                 >
                   <option value="">ทุกสถานที่</option>
-                  {PLACE_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                  {PLACE_OPTIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
                 </select>
 
                 <button
@@ -228,13 +300,25 @@ export default function Home() {
           {/* Categories */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">📁 หมวดหมู่ยอดนิยม</h2>
-              <Link href="/lost" className="text-sm text-blue-600 hover:text-blue-800 font-medium">ดูทั้งหมด →</Link>
+              <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">
+                📁 หมวดหมู่ยอดนิยม
+              </h2>
+              <Link
+                href="/lost"
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                ดูทั้งหมด →
+              </Link>
             </div>
             <div className="flex flex-wrap gap-2">
               {topCategories.length === 0 ? (
                 <div className="grid grid-cols-2 gap-2 w-full">
-                  {Array.from({length: 4}).map((_, i) => <div key={i} className="h-10 rounded-lg bg-slate-100 animate-pulse" />)}
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-10 rounded-lg bg-slate-100 animate-pulse"
+                    />
+                  ))}
                 </div>
               ) : (
                 topCategories.map((c) => (
@@ -245,7 +329,9 @@ export default function Home() {
                     title={`${c.name} (${c.count})`}
                   >
                     {c.name}
-                    <span className="bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded text-xs font-semibold">{c.count}</span>
+                    <span className="bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded text-xs font-semibold">
+                      {c.count}
+                    </span>
                   </button>
                 ))
               )}
@@ -255,13 +341,25 @@ export default function Home() {
           {/* Places */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">📍 สถานที่ยอดนิยม</h2>
-              <Link href="/lost" className="text-sm text-blue-600 hover:text-blue-800 font-medium">ดูทั้งหมด →</Link>
+              <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">
+                📍 สถานที่ยอดนิยม
+              </h2>
+              <Link
+                href="/lost"
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                ดูทั้งหมด →
+              </Link>
             </div>
             <div className="flex flex-wrap gap-2">
               {topPlaces.length === 0 ? (
                 <div className="grid grid-cols-2 gap-2 w-full">
-                  {Array.from({length: 4}).map((_, i) => <div key={i} className="h-10 rounded-lg bg-slate-100 animate-pulse" />)}
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-10 rounded-lg bg-slate-100 animate-pulse"
+                    />
+                  ))}
                 </div>
               ) : (
                 topPlaces.map((p) => (
@@ -272,7 +370,9 @@ export default function Home() {
                     title={`${p.name} (${p.count})`}
                   >
                     {p.name}
-                    <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-xs font-semibold">{p.count}</span>
+                    <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-xs font-semibold">
+                      {p.count}
+                    </span>
                   </button>
                 ))
               )}
@@ -285,16 +385,36 @@ export default function Home() {
           {/* Lost Items */}
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-blue-900 flex items-center gap-2">🔍 ของหายล่าสุด</h2>
-              <Link href="/lost" className="text-blue-600 hover:text-blue-800 font-medium">ดูทั้งหมด →</Link>
+              <h2 className="text-2xl font-bold text-blue-900 flex items-center gap-2">
+                🔍 ของหายล่าสุด
+              </h2>
+              <Link
+                href="/lost"
+                className="text-blue-600 hover:text-blue-800 font-medium"
+              >
+                ดูทั้งหมด →
+              </Link>
             </div>
             {loading ? (
-              <div className="space-y-4">{Array.from({length: 3}).map((_, i) => <div key={i} className="h-32 rounded-xl bg-slate-100 animate-pulse" />)}</div>
+              <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-32 rounded-xl bg-slate-100 animate-pulse"
+                  />
+                ))}
+              </div>
             ) : lost.length === 0 ? (
               <EmptyState text="ยังไม่มีรายการของหาย" icon="🔍" />
             ) : (
               <div className="space-y-4">
-                {lost.slice(0, 4).map(item => <CompactItemCard key={`lost-${item.id}`} item={item} kind="lost" />)}
+                {lost.slice(0, 4).map((item) => (
+                  <CompactItemCard
+                    key={`lost-${item.id}`}
+                    item={item}
+                    kind="lost"
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -302,26 +422,62 @@ export default function Home() {
           {/* Found Items */}
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-blue-900 flex items-center gap-2">📢 พบของล่าสุด</h2>
-              <Link href="/found" className="text-blue-600 hover:text-blue-800 font-medium">ดูทั้งหมด →</Link>
+              <h2 className="text-2xl font-bold text-blue-900 flex items-center gap-2">
+                📢 พบของล่าสุด
+              </h2>
+              <Link
+                href="/found"
+                className="text-blue-600 hover:text-blue-800 font-medium"
+              >
+                ดูทั้งหมด →
+              </Link>
             </div>
             {foundNeedsLogin ? (
               <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100 text-center">
-                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">🔐</div>
-                <h3 className="font-bold text-blue-900 mb-2">ต้องเข้าสู่ระบบ</h3>
-                <p className="text-blue-700 text-sm mb-4">เพื่อดูรายการพบของและติดต่อผู้แจ้ง</p>
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  🔐
+                </div>
+                <h3 className="font-bold text-blue-900 mb-2">
+                  ต้องเข้าสู่ระบบ
+                </h3>
+                <p className="text-blue-700 text-sm mb-4">
+                  เพื่อดูรายการพบของและติดต่อผู้แจ้ง
+                </p>
                 <div className="flex gap-2 justify-center">
-                  <Link href="/signin" className="px-4 py-2 text-sm font-medium text-blue-700 border border-blue-300 rounded-lg hover:bg-blue-50">เข้าสู่ระบบ</Link>
-                  <Link href="/signup" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">สมัครสมาชิก</Link>
+                  <Link
+                    href="/signin"
+                    className="px-4 py-2 text-sm font-medium text-blue-700 border border-blue-300 rounded-lg hover:bg-blue-50"
+                  >
+                    เข้าสู่ระบบ
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                  >
+                    สมัครสมาชิก
+                  </Link>
                 </div>
               </div>
             ) : loading ? (
-              <div className="space-y-4">{Array.from({length: 3}).map((_, i) => <div key={i} className="h-32 rounded-xl bg-slate-100 animate-pulse" />)}</div>
+              <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-32 rounded-xl bg-slate-100 animate-pulse"
+                  />
+                ))}
+              </div>
             ) : found.length === 0 ? (
               <EmptyState text="ยังไม่มีการแจ้งพบของ" icon="📢" />
             ) : (
               <div className="space-y-4">
-                {found.slice(0, 4).map(item => <CompactItemCard key={`found-${item.id}`} item={item} kind="found" />)}
+                {found.slice(0, 4).map((item) => (
+                  <CompactItemCard
+                    key={`found-${item.id}`}
+                    item={item}
+                    kind="found"
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -331,18 +487,30 @@ export default function Home() {
         <section className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 rounded-3xl p-8 text-white text-center relative overflow-hidden">
           <div className="absolute inset-0 opacity-10">
             <div className="absolute top-0 left-1/4 w-64 h-64 rounded-full bg-white blur-3xl animate-pulse" />
-            <div className="absolute bottom-0 right-1/4 w-64 h-64 rounded-full bg-white blur-3xl animate-pulse" style={{animationDelay: '1s'}} />
+            <div
+              className="absolute bottom-0 right-1/4 w-64 h-64 rounded-full bg-white blur-3xl animate-pulse"
+              style={{ animationDelay: "1s" }}
+            />
           </div>
           <div className="relative">
-            <h3 className="text-3xl font-bold mb-4">พร้อมช่วยกันแล้วใช่ไหม? 🤝</h3>
+            <h3 className="text-3xl font-bold mb-4">
+              พร้อมช่วยกันแล้วใช่ไหม? 🤝
+            </h3>
             <p className="text-blue-100 text-lg mb-8 max-w-2xl mx-auto">
-              เริ่มแจ้งพบของ หรือค้นหาของหาย ระบบแชทเรียลไทม์จะช่วยให้คุณติดต่อกันได้ทันที
+              เริ่มแจ้งพบของ หรือค้นหาของหาย
+              ระบบแชทเรียลไทม์จะช่วยให้คุณติดต่อกันได้ทันที
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/found" className="px-8 py-4 bg-white text-blue-900 font-bold rounded-xl hover:shadow-lg transition-all duration-200 hover:scale-105">
+              <Link
+                href="/found"
+                className="px-8 py-4 bg-white text-blue-900 font-bold rounded-xl hover:shadow-lg transition-all duration-200 hover:scale-105"
+              >
                 📢 แจ้งพบของทันที
               </Link>
-              <Link href="/lost" className="px-8 py-4 bg-white/10 border border-white/30 text-white font-bold rounded-xl hover:bg-white/20 transition-all duration-200 hover:scale-105 backdrop-blur">
+              <Link
+                href="/lost"
+                className="px-8 py-4 bg-white/10 border border-white/30 text-white font-bold rounded-xl hover:bg-white/20 transition-all duration-200 hover:scale-105 backdrop-blur"
+              >
                 🔍 ตรวจสอบของหาย
               </Link>
             </div>
@@ -367,15 +535,36 @@ function CompactItemCard({ item, kind }) {
   const cover = item.images?.[0];
   const link = `/${kind}/${item.id}`;
   const reporterName =
-    item.createdBy?.firstName || item.owner?.firstName || item.reporter?.firstName
-      ? `${(item.createdBy?.firstName || item.owner?.firstName || item.reporter?.firstName) ?? ""} ${(item.createdBy?.lastName || item.owner?.lastName || item.reporter?.lastName) ?? ""}`.trim()
-      : (item.reporterName || "ไม่ระบุ");
+    item.createdBy?.firstName ||
+    item.owner?.firstName ||
+    item.reporter?.firstName
+      ? `${
+          (item.createdBy?.firstName ||
+            item.owner?.firstName ||
+            item.reporter?.firstName) ??
+          ""
+        } ${
+          (item.createdBy?.lastName ||
+            item.owner?.lastName ||
+            item.reporter?.lastName) ??
+          ""
+        }`.trim()
+      : item.reporterName || "ไม่ระบุ";
 
-  const avatarUrl = item.createdBy?.avatarUrl || item.owner?.avatarUrl || item.reporter?.avatarUrl || null;
-  const statusResolved = (item.status || "").toString().toUpperCase() === "RESOLVED";
+  const avatarUrl =
+    item.createdBy?.avatarUrl ||
+    item.owner?.avatarUrl ||
+    item.reporter?.avatarUrl ||
+    null;
+  const statusResolved =
+    (item.status || "").toString().toUpperCase() === "RESOLVED";
 
-  const initials = (name="") =>
-    (name.split(" ").map(s => s[0]?.toUpperCase() || "").slice(0,2).join("")) || "U";
+  const initials = (name = "") =>
+    name
+      .split(" ")
+      .map((s) => s[0]?.toUpperCase() || "")
+      .slice(0, 2)
+      .join("") || "U";
 
   return (
     <Link href={link} className="block group">
@@ -383,7 +572,11 @@ function CompactItemCard({ item, kind }) {
         <div className="flex gap-4">
           <div className="w-20 h-20 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0">
             {cover ? (
-              <img src={cover} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+              <img
+                src={cover}
+                alt={item.name}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-slate-400 text-2xl">
                 {kind === "lost" ? "🔍" : "📢"}
@@ -399,7 +592,9 @@ function CompactItemCard({ item, kind }) {
               {kind === "found" && (
                 <span
                   className={`px-2 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
-                    statusResolved ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                    statusResolved
+                      ? "bg-green-100 text-green-700"
+                      : "bg-amber-100 text-amber-700"
                   }`}
                 >
                   {statusResolved ? "ส่งคืนแล้ว" : "รอเจ้าของ"}
@@ -407,7 +602,9 @@ function CompactItemCard({ item, kind }) {
               )}
             </div>
 
-            <p className="text-sm text-slate-600 line-clamp-2 mb-3">{item.description}</p>
+            <p className="text-sm text-slate-600 line-clamp-2 mb-3">
+              {item.description}
+            </p>
 
             {/* ⬇️ ตรงนี้คือส่วนที่ปรับ: มือถือซ้อน 2 แถว ชิดซ้าย; จอ md ขึ้นไปเหมือนเดิม */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1.5 md:gap-2 text-xs text-slate-500">
@@ -415,7 +612,9 @@ function CompactItemCard({ item, kind }) {
               <div className="flex items-center gap-2 md:gap-3 min-w-0">
                 <span className="flex items-center gap-1 min-w-0">
                   <span>📍</span>
-                  <span className="truncate max-w-[160px] sm:max-w-[220px]">{item.place}</span>
+                  <span className="truncate max-w-[160px] sm:max-w-[220px]">
+                    {item.place}
+                  </span>
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                   <span>🕒</span>
@@ -426,14 +625,21 @@ function CompactItemCard({ item, kind }) {
               {/* แถว 2 (มือถือ) / ขวา (เดสก์ท็อป): ผู้แจ้ง */}
               <div className="flex items-center gap-2 md:justify-end">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt={reporterName} className="w-6 h-6 rounded-full object-cover" />
+                  <img
+                    src={avatarUrl}
+                    alt={reporterName}
+                    className="w-6 h-6 rounded-full object-cover"
+                  />
                 ) : (
                   <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
                     {initials(reporterName)}
                   </div>
                 )}
                 <span className="font-medium text-slate-700 truncate max-w-[120px] sm:max-w-[160px]">
-                  โดย {reporterName}
+                  โดย{" "}
+                  <span className="font-medium text-blue-900">
+                    {reporterName}
+                  </span>
                 </span>
               </div>
             </div>
@@ -444,4 +650,3 @@ function CompactItemCard({ item, kind }) {
     </Link>
   );
 }
-
